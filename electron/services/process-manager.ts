@@ -1,8 +1,11 @@
 import { spawn, execFile, type ChildProcess } from 'child_process'
+import path from 'path'
 import { promisify } from 'util'
 import { BrowserWindow } from 'electron'
 
 const execFileAsync = promisify(execFile)
+
+export type LaunchMode = 'watch' | 'release' | 'devcontainer'
 
 export interface ProcessConfig {
   id: string
@@ -11,6 +14,8 @@ export interface ProcessConfig {
   projectPath: string
   csprojPath?: string
   port?: number
+  mode?: LaunchMode
+  rootPath?: string // needed for devcontainer workspace-folder
 }
 
 export interface ProcessInfo {
@@ -21,6 +26,7 @@ export interface ProcessInfo {
   pid?: number
   port?: number
   startedAt?: string
+  mode?: LaunchMode
 }
 
 const LOG_BUFFER_SIZE = 10000
@@ -60,17 +66,71 @@ export class ProcessManager {
     }
 
     let proc: ChildProcess
+    const mode = config.mode || 'watch'
 
     if (config.type === 'dotnet') {
-      const args = ['watch', 'run']
-      if (config.csprojPath) {
-        args.push('--project', config.csprojPath)
+      if (mode === 'devcontainer') {
+        // DevContainer mode: run via devcontainer CLI
+        const workspaceFolder = config.rootPath || config.projectPath
+        const relativeCsproj = config.csprojPath
+          ? path.relative(workspaceFolder, config.csprojPath)
+          : undefined
+
+        const execArgs = ['exec', '--workspace-folder', workspaceFolder, 'dotnet', 'run']
+        if (relativeCsproj) {
+          execArgs.push('--project', relativeCsproj)
+        }
+
+        // First ensure container is up
+        try {
+          const upProc = spawn('devcontainer', ['up', '--workspace-folder', workspaceFolder], {
+            stdio: ['pipe', 'pipe', 'pipe']
+          })
+          // Forward up logs
+          upProc.stdout?.on('data', (data: Buffer) => {
+            this.mainWindow.webContents.send('process:log', { id: config.id, data: data.toString() })
+          })
+          upProc.stderr?.on('data', (data: Buffer) => {
+            this.mainWindow.webContents.send('process:log', { id: config.id, data: data.toString() })
+          })
+          await new Promise<void>((resolve, reject) => {
+            upProc.on('exit', (code) => {
+              if (code === 0) resolve()
+              else reject(new Error(`devcontainer up failed with code ${code}`))
+            })
+            upProc.on('error', reject)
+          })
+        } catch (err: any) {
+          if (err.message?.includes('ENOENT')) {
+            throw new Error('devcontainer CLI not found. Install it via: npm install -g @devcontainers/cli')
+          }
+          throw err
+        }
+
+        proc = spawn('devcontainer', execArgs, {
+          stdio: ['pipe', 'pipe', 'pipe']
+        })
+      } else if (mode === 'release') {
+        const args = ['run', '-c', 'Release']
+        if (config.csprojPath) {
+          args.push('--project', config.csprojPath)
+        }
+        proc = spawn('dotnet', args, {
+          cwd: config.projectPath,
+          stdio: ['pipe', 'pipe', 'pipe']
+        })
+      } else {
+        // watch mode (default)
+        const args = ['watch', 'run']
+        if (config.csprojPath) {
+          args.push('--project', config.csprojPath)
+        }
+        proc = spawn('dotnet', args, {
+          cwd: config.projectPath,
+          env: { ...process.env, DOTNET_WATCH_RESTART_ON_RUDE_EDIT: 'true' },
+          stdio: ['pipe', 'pipe', 'pipe']
+        })
       }
-      proc = spawn('dotnet', args, {
-        cwd: config.projectPath,
-        env: { ...process.env, DOTNET_WATCH_RESTART_ON_RUDE_EDIT: 'true' },
-        stdio: ['pipe', 'pipe', 'pipe']
-      })
     } else if (config.type === 'angular') {
       proc = spawn('npx', ['ng', 'serve'], {
         cwd: config.projectPath,
@@ -199,7 +259,7 @@ export class ProcessManager {
     return result
   }
 
-  private async killByPort(port: number): Promise<void> {
+  async killByPort(port: number): Promise<void> {
     try {
       const { stdout } = await execFileAsync('lsof', ['-i', `:${port}`, '-t'])
       const pids = stdout.trim().split('\n').filter(Boolean).map(Number)
@@ -241,7 +301,8 @@ export class ProcessManager {
       status,
       pid: entry.proc.pid,
       port: entry.config.port,
-      startedAt: entry.startedAt
+      startedAt: entry.startedAt,
+      mode: entry.config.mode
     }
   }
 

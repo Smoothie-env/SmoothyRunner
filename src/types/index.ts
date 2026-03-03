@@ -1,3 +1,9 @@
+export interface ProjectGroup {
+  id: string
+  name: string
+  order: number
+}
+
 export interface SubProject {
   id: string
   name: string
@@ -19,8 +25,11 @@ export interface FolderProject {
   solutionFile?: string
   hasDockerCompose: boolean
   dockerComposePath?: string
+  hasDevContainer: boolean
+  devContainerPath?: string
   branch?: string
   activeWorktreePath?: string
+  groupId?: string
 }
 
 export type SidebarSelection =
@@ -30,6 +39,8 @@ export type SidebarSelection =
 
 export type ViewTab = 'csproj' | 'appsettings' | 'services' | 'docker'
 
+export type LaunchMode = 'watch' | 'release' | 'devcontainer'
+
 export interface ProcessInfo {
   id: string
   name: string
@@ -38,6 +49,7 @@ export interface ProcessInfo {
   pid?: number
   port?: number
   startedAt?: string
+  mode?: LaunchMode
 }
 
 export interface DockerContainer {
@@ -59,6 +71,7 @@ export interface Worktree {
 
 export interface Profile {
   name: string
+  filePath: string
   overlay: Record<string, unknown>
 }
 
@@ -73,6 +86,13 @@ declare global {
       setProjectWorktree: (id: string, worktreePath: string | null) => Promise<void>
       selectDirectory: () => Promise<string | null>
 
+      // Groups
+      listGroups: () => Promise<ProjectGroup[]>
+      addGroup: (name: string) => Promise<ProjectGroup>
+      renameGroup: (id: string, name: string) => Promise<void>
+      removeGroup: (id: string) => Promise<void>
+      setProjectGroup: (projectId: string, groupId: string | null) => Promise<void>
+
       // File system
       readFileContent: (filePath: string) => Promise<string>
       writeFileContent: (filePath: string, content: string) => Promise<void>
@@ -84,17 +104,19 @@ declare global {
       unwatchAppsettings: (filePath: string) => Promise<void>
 
       // Profiles
-      listProfiles: (projectId: string) => Promise<string[]>
-      saveProfile: (projectId: string, name: string, overlay: unknown) => Promise<void>
-      applyProfile: (projectId: string, name: string) => Promise<{ success: boolean; error?: string }>
-      deleteProfile: (projectId: string, name: string) => Promise<void>
-      previewProfile: (projectId: string, name: string) => Promise<{ merged: unknown; error?: string }>
+      listProfiles: (projectId: string, filePath: string) => Promise<string[]>
+      saveProfile: (projectId: string, filePath: string, name: string, currentData: Record<string, unknown>) => Promise<void>
+      applyProfile: (projectId: string, filePath: string, name: string) => Promise<{ merged: Record<string, unknown> | null; error?: string }>
+      deleteProfile: (projectId: string, filePath: string, name: string) => Promise<void>
+      getBaseline: (projectId: string, filePath: string) => Promise<Record<string, unknown> | null>
+      resetBaseline: (projectId: string, filePath: string) => Promise<Record<string, unknown>>
 
       // Process
       startProcess: (config: unknown) => Promise<ProcessInfo>
       stopProcess: (id: string) => Promise<void>
       restartProcess: (id: string) => Promise<ProcessInfo>
       listProcesses: () => Promise<ProcessInfo[]>
+      killPort: (port: number) => Promise<void>
 
       // Docker
       dockerStatus: (composePath: string, profiles: string[]) => Promise<DockerContainer[]>
@@ -110,10 +132,17 @@ declare global {
       gitWorktreeAdd: (repoPath: string, branch: string, path: string) => Promise<void>
       gitWorktreeRemove: (worktreePath: string) => Promise<void>
 
+      // Git — checkout & dirty check
+      gitCheckout: (repoPath: string, branch: string) => Promise<void>
+      gitIsDirty: (repoPath: string) => Promise<boolean>
+      gitStash: (repoPath: string, message?: string) => Promise<void>
+      gitStashPop: (repoPath: string) => Promise<void>
+
       // Events
       onProcessLog: (callback: (data: { id: string; data: string }) => void) => () => void
       onAppsettingsChanged: (callback: (data: { filePath: string }) => void) => () => void
       onDockerStatus: (callback: (data: unknown) => void) => () => void
+      onBranchChanged: (callback: (data: { repoPath: string; branch: string }) => void) => () => void
     }
   }
 }

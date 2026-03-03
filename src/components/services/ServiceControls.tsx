@@ -1,22 +1,42 @@
 import { useState } from 'react'
-import type { SubProject, ProcessInfo } from '@/types'
+import type { SubProject, ProcessInfo, LaunchMode, FolderProject } from '@/types'
 import { useProcessStore } from '@/stores/processStore'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Play, Square, RotateCcw, Circle, AlertCircle } from 'lucide-react'
+import { Play, Square, RotateCcw, Circle, AlertCircle, Terminal, Eye, Rocket, Container, Skull } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 interface ServiceControlsProps {
   subProject: SubProject
   processInfo?: ProcessInfo
+  project?: FolderProject
 }
 
-export function ServiceControls({ subProject, processInfo }: ServiceControlsProps) {
+const MODE_LABELS: Record<LaunchMode, string> = {
+  watch: 'Watch',
+  release: 'Release',
+  devcontainer: 'Container'
+}
+
+function getModeCommand(mode: LaunchMode): string {
+  switch (mode) {
+    case 'watch': return 'dotnet watch run'
+    case 'release': return 'dotnet run -c Release'
+    case 'devcontainer': return 'devcontainer exec ... dotnet run'
+  }
+}
+
+export function ServiceControls({ subProject, processInfo, project }: ServiceControlsProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [mode, setMode] = useState<LaunchMode>('watch')
   const setProcesses = useProcessStore(s => s.setProcesses)
+  const setBottomPanelOpen = useProcessStore(s => s.setBottomPanelOpen)
+  const setActiveProcessTab = useProcessStore(s => s.setActiveProcessTab)
 
   const isRunning = processInfo?.status === 'running'
   const isStopped = !processInfo || processInfo.status === 'stopped'
+  const hasDevContainer = project?.hasDevContainer ?? false
 
   const refreshProcesses = async () => {
     const list = await window.sparkApi.listProcesses()
@@ -33,7 +53,9 @@ export function ServiceControls({ subProject, processInfo }: ServiceControlsProp
         type: 'dotnet',
         projectPath: subProject.dirPath,
         csprojPath: subProject.csprojPath,
-        port: subProject.port
+        port: subProject.port,
+        mode,
+        rootPath: project?.rootPath
       })
       await refreshProcesses()
     } catch (err: any) {
@@ -71,6 +93,45 @@ export function ServiceControls({ subProject, processInfo }: ServiceControlsProp
 
   return (
     <div className="space-y-3">
+      {/* Mode selector */}
+      <div className="flex items-center gap-1 p-0.5 bg-zinc-800/50 rounded-md w-fit">
+        <button
+          className={cn(
+            'flex items-center gap-1 px-2.5 py-1 rounded text-xs transition-colors',
+            mode === 'watch' ? 'bg-zinc-700 text-foreground' : 'text-muted-foreground hover:text-foreground'
+          )}
+          onClick={() => setMode('watch')}
+          disabled={isRunning}
+        >
+          <Eye className="h-3 w-3" />
+          Watch
+        </button>
+        <button
+          className={cn(
+            'flex items-center gap-1 px-2.5 py-1 rounded text-xs transition-colors',
+            mode === 'release' ? 'bg-zinc-700 text-foreground' : 'text-muted-foreground hover:text-foreground'
+          )}
+          onClick={() => setMode('release')}
+          disabled={isRunning}
+        >
+          <Rocket className="h-3 w-3" />
+          Release
+        </button>
+        {hasDevContainer && (
+          <button
+            className={cn(
+              'flex items-center gap-1 px-2.5 py-1 rounded text-xs transition-colors',
+              mode === 'devcontainer' ? 'bg-zinc-700 text-foreground' : 'text-muted-foreground hover:text-foreground'
+            )}
+            onClick={() => setMode('devcontainer')}
+            disabled={isRunning}
+          >
+            <Container className="h-3 w-3" />
+            Container
+          </button>
+        )}
+      </div>
+
       <div className="flex items-center gap-3">
         <div className="flex-1">
           <div className="flex items-center gap-2">
@@ -91,7 +152,7 @@ export function ServiceControls({ subProject, processInfo }: ServiceControlsProp
             )}
           </div>
           <p className="text-xs text-muted-foreground mt-0.5">
-            dotnet watch run — {subProject.dirPath}
+            {getModeCommand(mode)} — {subProject.dirPath}
           </p>
         </div>
 
@@ -119,9 +180,63 @@ export function ServiceControls({ subProject, processInfo }: ServiceControlsProp
       {error && (
         <div className="flex items-center gap-2 text-destructive text-sm bg-destructive/10 rounded-md px-3 py-2">
           <AlertCircle className="h-4 w-4 shrink-0" />
-          {error}
+          <span className="flex-1">{error}</span>
+          {portFromError(error) && (
+            <Button
+              variant="destructive"
+              size="sm"
+              className="shrink-0 ml-2"
+              disabled={loading}
+              onClick={async () => {
+                const port = portFromError(error)
+                if (!port) return
+                setLoading(true)
+                try {
+                  await window.sparkApi.killPort(port)
+                  setError(null)
+                  // Auto-retry start
+                  await window.sparkApi.startProcess({
+                    id: subProject.id,
+                    name: subProject.name,
+                    type: 'dotnet',
+                    projectPath: subProject.dirPath,
+                    csprojPath: subProject.csprojPath,
+                    port: subProject.port,
+                    mode,
+                    rootPath: project?.rootPath
+                  })
+                  await refreshProcesses()
+                } catch (err: any) {
+                  setError(err.message || 'Failed after killing port')
+                } finally {
+                  setLoading(false)
+                }
+              }}
+            >
+              <Skull className="h-3.5 w-3.5 mr-1" />
+              Kill Port & Retry
+            </Button>
+          )}
         </div>
       )}
+
+      <Button
+        variant="outline"
+        size="sm"
+        className="w-fit"
+        onClick={() => {
+          setBottomPanelOpen(true)
+          setActiveProcessTab(subProject.id)
+        }}
+      >
+        <Terminal className="h-3.5 w-3.5 mr-1" />
+        View Logs
+      </Button>
     </div>
   )
+}
+
+function portFromError(error: string): number | null {
+  const match = error.match(/Port (\d+) is already in use/)
+  return match ? parseInt(match[1], 10) : null
 }

@@ -1,14 +1,16 @@
 import { create } from 'zustand'
-import type { FolderProject, SubProject, SidebarSelection, ViewTab } from '@/types'
+import type { FolderProject, SubProject, SidebarSelection, ViewTab, ProjectGroup } from '@/types'
 
 interface ProjectState {
   folderProjects: FolderProject[]
+  groups: ProjectGroup[]
   selection: SidebarSelection
   activeTab: ViewTab
   scanning: boolean
   appsettingsData: Record<string, unknown> | null
   activeAppsettingsFile: string | null
   appsettingsDirty: boolean
+  activeProfile: string | null
   csprojContent: string | null
   csprojLoading: boolean
   csprojDirty: boolean
@@ -18,12 +20,17 @@ interface ProjectState {
   addFolderProject: (project: FolderProject) => void
   removeFolderProject: (id: string) => void
   updateFolderProject: (id: string, updates: Partial<FolderProject>) => void
+  setGroups: (groups: ProjectGroup[]) => void
+  addGroup: (group: ProjectGroup) => void
+  removeGroup: (id: string) => void
+  renameGroup: (id: string, name: string) => void
   setSelection: (selection: SidebarSelection) => void
   setActiveTab: (tab: ViewTab) => void
   setScanning: (scanning: boolean) => void
   setAppsettingsData: (data: Record<string, unknown> | null) => void
   setActiveAppsettingsFile: (file: string | null) => void
   setAppsettingsDirty: (dirty: boolean) => void
+  setActiveProfile: (name: string | null) => void
   setCsprojContent: (content: string | null) => void
   setCsprojLoading: (loading: boolean) => void
   setCsprojDirty: (dirty: boolean) => void
@@ -35,18 +42,29 @@ interface ProjectState {
 
 export const useProjectStore = create<ProjectState>((set, get) => ({
   folderProjects: [],
+  groups: [],
   selection: null,
   activeTab: 'csproj',
   scanning: false,
   appsettingsData: null,
   activeAppsettingsFile: null,
   appsettingsDirty: false,
+  activeProfile: null,
   csprojContent: null,
   csprojLoading: false,
   csprojDirty: false,
   expandedProjects: new Set<string>(),
 
   setFolderProjects: (folderProjects) => set({ folderProjects }),
+  setGroups: (groups) => set({ groups }),
+  addGroup: (group) => set((s) => ({ groups: [...s.groups, group] })),
+  removeGroup: (id) => set((s) => ({
+    groups: s.groups.filter(g => g.id !== id),
+    folderProjects: s.folderProjects.map(p => p.groupId === id ? { ...p, groupId: undefined } : p)
+  })),
+  renameGroup: (id, name) => set((s) => ({
+    groups: s.groups.map(g => g.id === id ? { ...g, name } : g)
+  })),
   addFolderProject: (project) => set((s) => ({
     folderProjects: [...s.folderProjects, project],
     expandedProjects: new Set([...s.expandedProjects, project.id])
@@ -69,14 +87,16 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     appsettingsData: null,
     activeAppsettingsFile: null,
     appsettingsDirty: false,
+    activeProfile: null,
     csprojContent: null,
     csprojDirty: false
   }),
   setActiveTab: (tab) => set({ activeTab: tab }),
   setScanning: (scanning) => set({ scanning }),
   setAppsettingsData: (data) => set({ appsettingsData: data }),
-  setActiveAppsettingsFile: (file) => set({ activeAppsettingsFile: file }),
+  setActiveAppsettingsFile: (file) => set({ activeAppsettingsFile: file, activeProfile: null }),
   setAppsettingsDirty: (dirty) => set({ appsettingsDirty: dirty }),
+  setActiveProfile: (name) => set({ activeProfile: name }),
   setCsprojContent: (content) => set({ csprojContent: content }),
   setCsprojLoading: (loading) => set({ csprojLoading: loading }),
   setCsprojDirty: (dirty) => set({ csprojDirty: dirty }),

@@ -9,6 +9,13 @@ const sparkApi = {
   setProjectWorktree: (id: string, worktreePath: string | null) => ipcRenderer.invoke('projects:setWorktree', id, worktreePath),
   selectDirectory: () => ipcRenderer.invoke('dialog:selectDirectory'),
 
+  // Groups
+  listGroups: () => ipcRenderer.invoke('groups:list'),
+  addGroup: (name: string) => ipcRenderer.invoke('groups:add', name),
+  renameGroup: (id: string, name: string) => ipcRenderer.invoke('groups:rename', id, name),
+  removeGroup: (id: string) => ipcRenderer.invoke('groups:remove', id),
+  setProjectGroup: (projectId: string, groupId: string | null) => ipcRenderer.invoke('groups:setProject', projectId, groupId),
+
   // File system
   readFileContent: (filePath: string) => ipcRenderer.invoke('fs:readFile', filePath),
   writeFileContent: (filePath: string, content: string) => ipcRenderer.invoke('fs:writeFile', filePath, content),
@@ -20,17 +27,19 @@ const sparkApi = {
   unwatchAppsettings: (filePath: string) => ipcRenderer.invoke('appsettings:unwatch', filePath),
 
   // Profiles
-  listProfiles: (projectId: string) => ipcRenderer.invoke('profiles:list', projectId),
-  saveProfile: (projectId: string, name: string, overlay: unknown) => ipcRenderer.invoke('profiles:save', projectId, name, overlay),
-  applyProfile: (projectId: string, name: string) => ipcRenderer.invoke('profiles:apply', projectId, name),
-  deleteProfile: (projectId: string, name: string) => ipcRenderer.invoke('profiles:delete', projectId, name),
-  previewProfile: (projectId: string, name: string) => ipcRenderer.invoke('profiles:preview', projectId, name),
+  listProfiles: (projectId: string, filePath: string) => ipcRenderer.invoke('profiles:list', projectId, filePath),
+  saveProfile: (projectId: string, filePath: string, name: string, currentData: Record<string, unknown>) => ipcRenderer.invoke('profiles:save', projectId, filePath, name, currentData),
+  applyProfile: (projectId: string, filePath: string, name: string) => ipcRenderer.invoke('profiles:apply', projectId, filePath, name),
+  deleteProfile: (projectId: string, filePath: string, name: string) => ipcRenderer.invoke('profiles:delete', projectId, filePath, name),
+  getBaseline: (projectId: string, filePath: string) => ipcRenderer.invoke('profiles:get-baseline', projectId, filePath),
+  resetBaseline: (projectId: string, filePath: string) => ipcRenderer.invoke('profiles:reset-baseline', projectId, filePath),
 
   // Process
   startProcess: (config: unknown) => ipcRenderer.invoke('process:start', config),
   stopProcess: (id: string) => ipcRenderer.invoke('process:stop', id),
   restartProcess: (id: string) => ipcRenderer.invoke('process:restart', id),
   listProcesses: () => ipcRenderer.invoke('process:list'),
+  killPort: (port: number) => ipcRenderer.invoke('process:killPort', port),
 
   // Docker
   dockerStatus: (composePath: string, profiles: string[]) => ipcRenderer.invoke('docker:status', composePath, profiles),
@@ -61,7 +70,18 @@ const sparkApi = {
     const listener = (_event: Electron.IpcRendererEvent, data: unknown) => callback(data)
     ipcRenderer.on('docker:statusUpdate', listener)
     return () => ipcRenderer.removeListener('docker:statusUpdate', listener)
-  }
+  },
+  onBranchChanged: (callback: (data: { repoPath: string; branch: string }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: { repoPath: string; branch: string }) => callback(data)
+    ipcRenderer.on('git:branchChanged', listener)
+    return () => ipcRenderer.removeListener('git:branchChanged', listener)
+  },
+
+  // Git — checkout & dirty check
+  gitCheckout: (repoPath: string, branch: string) => ipcRenderer.invoke('git:checkout', repoPath, branch),
+  gitIsDirty: (repoPath: string) => ipcRenderer.invoke('git:isDirty', repoPath),
+  gitStash: (repoPath: string, message?: string) => ipcRenderer.invoke('git:stash', repoPath, message),
+  gitStashPop: (repoPath: string) => ipcRenderer.invoke('git:stashPop', repoPath)
 }
 
 contextBridge.exposeInMainWorld('sparkApi', sparkApi)

@@ -2,6 +2,12 @@ import fs from 'fs/promises'
 import path from 'path'
 import os from 'os'
 
+export interface ProjectGroup {
+  id: string
+  name: string
+  order: number
+}
+
 export interface FolderProjectConfig {
   id: string
   name: string
@@ -10,6 +16,9 @@ export interface FolderProjectConfig {
   activeWorktreePath?: string
   hasDockerCompose: boolean
   dockerComposePath?: string
+  hasDevContainer: boolean
+  devContainerPath?: string
+  groupId?: string
 }
 
 // Old format for migration
@@ -27,15 +36,25 @@ interface LegacyProjectConfig {
   dockerComposePath?: string
 }
 
+export interface FileProfileData {
+  baseline: Record<string, unknown> | null
+  profiles: Record<string, Record<string, unknown>>
+}
+
+export interface ProjectProfileData {
+  files: Record<string, FileProfileData>
+}
+
 export interface SparkConfig {
   folderProjects: FolderProjectConfig[]
-  profiles: Record<string, Record<string, unknown>>
+  profiles: Record<string, ProjectProfileData>
+  groups: ProjectGroup[]
 }
 
 interface LegacySparkConfig {
   projects?: LegacyProjectConfig[]
   folderProjects?: FolderProjectConfig[]
-  profiles: Record<string, Record<string, unknown>>
+  profiles: Record<string, unknown>
 }
 
 export class ConfigManager {
@@ -66,13 +85,26 @@ export class ConfigManager {
         return this.config
       }
 
+      const rawProfiles = (raw.profiles || {}) as Record<string, unknown>
+      const migratedProfiles: Record<string, ProjectProfileData> = {}
+      for (const [key, value] of Object.entries(rawProfiles)) {
+        const val = value as Record<string, unknown>
+        if (val && typeof val === 'object' && 'files' in val) {
+          migratedProfiles[key] = val as ProjectProfileData
+        } else {
+          // Old format — reset (old profiles were broken anyway)
+          migratedProfiles[key] = { files: {} }
+        }
+      }
+
       this.config = {
         folderProjects: raw.folderProjects || [],
-        profiles: raw.profiles || {}
+        profiles: migratedProfiles,
+        groups: (raw as any).groups || []
       }
       return this.config
     } catch {
-      this.config = { folderProjects: [], profiles: {} }
+      this.config = { folderProjects: [], profiles: {}, groups: [] }
       return this.config
     }
   }
@@ -98,13 +130,15 @@ export class ConfigManager {
         rootPath: dirPath,
         originalRootPath: dirPath,
         hasDockerCompose: _group.some(p => p.hasDockerCompose),
-        dockerComposePath: _group.find(p => p.dockerComposePath)?.dockerComposePath
+        dockerComposePath: _group.find(p => p.dockerComposePath)?.dockerComposePath,
+        hasDevContainer: false
       })
     }
 
     return {
       folderProjects,
-      profiles: raw.profiles || {}
+      profiles: raw.profiles || {},
+      groups: []
     }
   }
 
@@ -152,26 +186,116 @@ export class ConfigManager {
   }
 
   // Profile storage
-  async getProfiles(projectId: string): Promise<Record<string, unknown>> {
-    const config = await this.load()
-    return config.profiles[projectId] || {}
-  }
-
-  async setProfile(projectId: string, name: string, overlay: unknown): Promise<void> {
-    const config = await this.load()
+  private ensureFileEntry(config: SparkConfig, projectId: string, filePath: string): FileProfileData {
     if (!config.profiles[projectId]) {
-      config.profiles[projectId] = {}
+      config.profiles[projectId] = { files: {} }
     }
-    config.profiles[projectId][name] = overlay
+    if (!config.profiles[projectId].files[filePath]) {
+      config.profiles[projectId].files[filePath] = { baseline: null, profiles: {} }
+    }
+    return config.profiles[projectId].files[filePath]
+  }
+
+  async getProfileNames(projectId: string, filePath: string): Promise<string[]> {
+    const config = await this.load()
+    const projectData = config.profiles[projectId]
+    if (!projectData?.files[filePath]) return []
+    return Object.keys(projectData.files[filePath].profiles)
+  }
+
+  async getProfileOverlay(projectId: string, filePath: string, name: string): Promise<Record<string, unknown> | null> {
+    const config = await this.load()
+    const projectData = config.profiles[projectId]
+    if (!projectData?.files[filePath]) return null
+    return projectData.files[filePath].profiles[name] || null
+  }
+
+  async getBaseline(projectId: string, filePath: string): Promise<Record<string, unknown> | null> {
+    const config = await this.load()
+    const projectData = config.profiles[projectId]
+    if (!projectData?.files[filePath]) return null
+    return projectData.files[filePath].baseline
+  }
+
+  async setProfile(projectId: string, filePath: string, name: string, overlay: Record<string, unknown>, baseline: Record<string, unknown> | null): Promise<void> {
+    const config = await this.load()
+    const entry = this.ensureFileEntry(config, projectId, filePath)
+    entry.profiles[name] = overlay
+    if (entry.baseline === null && baseline !== null) {
+      entry.baseline = baseline
+    }
     await this.save()
   }
 
-  async deleteProfile(projectId: string, name: string): Promise<void> {
+  async setBaseline(projectId: string, filePath: string, baseline: Record<string, unknown>): Promise<void> {
     const config = await this.load()
-    if (config.profiles[projectId]) {
-      delete config.profiles[projectId][name]
+    const entry = this.ensureFileEntry(config, projectId, filePath)
+    entry.baseline = baseline
+    await this.save()
+  }
+
+  async deleteProfile(projectId: string, filePath: string, name: string): Promise<void> {
+    const config = await this.load()
+    const projectData = config.profiles[projectId]
+    if (!projectData?.files[filePath]) return
+    delete projectData.files[filePath].profiles[name]
+    // Cleanup empty entries
+    if (Object.keys(projectData.files[filePath].profiles).length === 0) {
+      delete projectData.files[filePath]
+    }
+    if (Object.keys(projectData.files).length === 0) {
+      delete config.profiles[projectId]
     }
     await this.save()
+  }
+
+  // Groups CRUD
+  async listGroups(): Promise<ProjectGroup[]> {
+    const config = await this.load()
+    return config.groups
+  }
+
+  async addGroup(name: string): Promise<ProjectGroup> {
+    const config = await this.load()
+    const maxOrder = config.groups.reduce((max, g) => Math.max(max, g.order), 0)
+    const group: ProjectGroup = {
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      name,
+      order: maxOrder + 1
+    }
+    config.groups.push(group)
+    await this.save()
+    return group
+  }
+
+  async renameGroup(id: string, name: string): Promise<void> {
+    const config = await this.load()
+    const group = config.groups.find(g => g.id === id)
+    if (group) {
+      group.name = name
+      await this.save()
+    }
+  }
+
+  async removeGroup(id: string): Promise<void> {
+    const config = await this.load()
+    config.groups = config.groups.filter(g => g.id !== id)
+    // Ungroup projects that belonged to this group
+    for (const p of config.folderProjects) {
+      if (p.groupId === id) {
+        p.groupId = undefined
+      }
+    }
+    await this.save()
+  }
+
+  async setProjectGroup(projectId: string, groupId: string | null): Promise<void> {
+    const config = await this.load()
+    const project = config.folderProjects.find(p => p.id === projectId)
+    if (project) {
+      project.groupId = groupId || undefined
+      await this.save()
+    }
   }
 
   private generateId(filePath: string): string {

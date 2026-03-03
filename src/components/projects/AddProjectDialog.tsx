@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
+import { Select, SelectItem } from '@/components/ui/select'
 import { useProjectStore } from '@/stores/projectStore'
 import { FolderOpen, Loader2, Play, BookOpen, Package } from 'lucide-react'
 import type { FolderProject } from '@/types'
@@ -37,7 +38,12 @@ export function AddProjectDialog({ open, onOpenChange }: AddProjectDialogProps) 
   const [scannedProject, setScannedProject] = useState<FolderProject | null>(null)
   const [scanning, setScanning] = useState(false)
   const [selectedDir, setSelectedDir] = useState<string | null>(null)
+  const [selectedGroupId, setSelectedGroupId] = useState<string>('__none__')
+  const [newGroupName, setNewGroupName] = useState('')
+  const [showNewGroupInput, setShowNewGroupInput] = useState(false)
   const addFolderProject = useProjectStore(s => s.addFolderProject)
+  const groups = useProjectStore(s => s.groups)
+  const addGroup = useProjectStore(s => s.addGroup)
 
   const handleSelectFolder = async () => {
     const dir = await window.sparkApi.selectDirectory()
@@ -57,8 +63,19 @@ export function AddProjectDialog({ open, onOpenChange }: AddProjectDialogProps) 
 
   const handleConfirm = async () => {
     if (!scannedProject) return
-    await window.sparkApi.addFolderProject(scannedProject)
-    addFolderProject(scannedProject)
+
+    let groupId: string | undefined = undefined
+    if (showNewGroupInput && newGroupName.trim()) {
+      const newGroup = await window.sparkApi.addGroup(newGroupName.trim())
+      addGroup(newGroup)
+      groupId = newGroup.id
+    } else if (selectedGroupId !== '__none__') {
+      groupId = selectedGroupId
+    }
+
+    const projectWithGroup = { ...scannedProject, groupId }
+    await window.sparkApi.addFolderProject(projectWithGroup)
+    addFolderProject(projectWithGroup)
     handleClose()
   }
 
@@ -66,6 +83,9 @@ export function AddProjectDialog({ open, onOpenChange }: AddProjectDialogProps) 
     onOpenChange(false)
     setScannedProject(null)
     setSelectedDir(null)
+    setSelectedGroupId('__none__')
+    setNewGroupName('')
+    setShowNewGroupInput(false)
   }
 
   const grouped = useMemo(() => {
@@ -177,6 +197,47 @@ export function AddProjectDialog({ open, onOpenChange }: AddProjectDialogProps) 
             </ScrollArea>
           </div>
         ) : null}
+
+        {scannedProject && scannedProject.subProjects.length > 0 && (
+          <div className="space-y-2">
+            <label className="text-xs text-muted-foreground">Group</label>
+            {!showNewGroupInput ? (
+              <Select
+                value={selectedGroupId}
+                onValueChange={(v) => {
+                  if (v === '__new__') {
+                    setShowNewGroupInput(true)
+                    setSelectedGroupId('__none__')
+                  } else {
+                    setSelectedGroupId(v)
+                  }
+                }}
+              >
+                <SelectItem value="__none__">No Group</SelectItem>
+                {groups.map(g => (
+                  <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
+                ))}
+                <SelectItem value="__new__">+ New Group</SelectItem>
+              </Select>
+            ) : (
+              <div className="flex gap-2">
+                <input
+                  value={newGroupName}
+                  onChange={(e) => setNewGroupName(e.target.value)}
+                  placeholder="Group name"
+                  className="flex-1 bg-transparent border rounded px-2 py-1 text-sm outline-none focus:border-primary"
+                  autoFocus
+                />
+                <Button variant="ghost" size="sm" onClick={() => {
+                  setShowNewGroupInput(false)
+                  setNewGroupName('')
+                }}>
+                  Cancel
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
 
         <DialogFooter>
           <Button variant="ghost" onClick={handleClose}>Cancel</Button>

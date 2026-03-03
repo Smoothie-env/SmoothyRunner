@@ -105,7 +105,7 @@ export function MainPanel() {
             {availableTabs.includes('services') && (
               <TabsTrigger value="services">
                 <Play className="h-3.5 w-3.5 mr-1" />
-                Services
+                Run
               </TabsTrigger>
             )}
             {availableTabs.includes('docker') && (

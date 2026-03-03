@@ -8,15 +8,17 @@ import { ProfileManager } from '../services/profile-manager'
 import { ProcessManager } from '../services/process-manager'
 import { DockerManager } from '../services/docker-manager'
 import { GitManager } from '../services/git-manager'
+import { GitWatcher } from '../services/git-watcher'
 
 export function registerAllHandlers(mainWindow: BrowserWindow): void {
   const scanner = new ProjectScanner()
   const config = new ConfigManager()
   const appsettings = new AppsettingsManager(mainWindow)
-  const profiles = new ProfileManager(config, scanner)
+  const profiles = new ProfileManager(config, appsettings)
   const processes = new ProcessManager(mainWindow)
   const docker = new DockerManager()
   const git = new GitManager()
+  const gitWatcher = new GitWatcher(mainWindow)
 
   // Dialog
   ipcMain.handle('dialog:selectDirectory', async () => {
@@ -37,6 +39,8 @@ export function registerAllHandlers(mainWindow: BrowserWindow): void {
     const results = await Promise.all(configs.map(async (cfg) => {
       const subProjects = await scanner.rescanSubProjects(cfg.rootPath)
       const branch = await git.currentBranch(cfg.rootPath).catch(() => undefined)
+      // Auto-watch git HEAD for branch changes
+      gitWatcher.watchProject(cfg.rootPath)
       return {
         ...cfg,
         subProjects,
@@ -55,7 +59,10 @@ export function registerAllHandlers(mainWindow: BrowserWindow): void {
       originalRootPath: p.originalRootPath,
       activeWorktreePath: p.activeWorktreePath,
       hasDockerCompose: p.hasDockerCompose,
-      dockerComposePath: p.dockerComposePath
+      dockerComposePath: p.dockerComposePath,
+      hasDevContainer: p.hasDevContainer ?? false,
+      devContainerPath: p.devContainerPath,
+      groupId: p.groupId
     }
     return config.addFolderProject(folderConfig)
   })
@@ -66,6 +73,27 @@ export function registerAllHandlers(mainWindow: BrowserWindow): void {
 
   ipcMain.handle('projects:setWorktree', async (_event, id: string, worktreePath: string | null) => {
     return config.setProjectWorktree(id, worktreePath)
+  })
+
+  // Groups
+  ipcMain.handle('groups:list', async () => {
+    return config.listGroups()
+  })
+
+  ipcMain.handle('groups:add', async (_event, name: string) => {
+    return config.addGroup(name)
+  })
+
+  ipcMain.handle('groups:rename', async (_event, id: string, name: string) => {
+    return config.renameGroup(id, name)
+  })
+
+  ipcMain.handle('groups:remove', async (_event, id: string) => {
+    return config.removeGroup(id)
+  })
+
+  ipcMain.handle('groups:setProject', async (_event, projectId: string, groupId: string | null) => {
+    return config.setProjectGroup(projectId, groupId)
   })
 
   // File system
@@ -95,24 +123,28 @@ export function registerAllHandlers(mainWindow: BrowserWindow): void {
   })
 
   // Profiles
-  ipcMain.handle('profiles:list', async (_event, projectId: string) => {
-    return profiles.listProfiles(projectId)
+  ipcMain.handle('profiles:list', async (_event, projectId: string, filePath: string) => {
+    return profiles.listProfiles(projectId, filePath)
   })
 
-  ipcMain.handle('profiles:save', async (_event, projectId: string, name: string, overlay: unknown) => {
-    return profiles.saveProfile(projectId, name, overlay)
+  ipcMain.handle('profiles:save', async (_event, projectId: string, filePath: string, name: string, currentData: Record<string, unknown>) => {
+    return profiles.saveProfile(projectId, filePath, name, currentData)
   })
 
-  ipcMain.handle('profiles:apply', async (_event, projectId: string, name: string) => {
-    return profiles.applyProfile(projectId, name)
+  ipcMain.handle('profiles:apply', async (_event, projectId: string, filePath: string, name: string) => {
+    return profiles.applyProfile(projectId, filePath, name)
   })
 
-  ipcMain.handle('profiles:delete', async (_event, projectId: string, name: string) => {
-    return profiles.deleteProfile(projectId, name)
+  ipcMain.handle('profiles:delete', async (_event, projectId: string, filePath: string, name: string) => {
+    return profiles.deleteProfile(projectId, filePath, name)
   })
 
-  ipcMain.handle('profiles:preview', async (_event, projectId: string, name: string) => {
-    return profiles.previewProfile(projectId, name)
+  ipcMain.handle('profiles:get-baseline', async (_event, projectId: string, filePath: string) => {
+    return profiles.getBaseline(projectId, filePath)
+  })
+
+  ipcMain.handle('profiles:reset-baseline', async (_event, projectId: string, filePath: string) => {
+    return profiles.resetBaseline(projectId, filePath)
   })
 
   // Process
@@ -130,6 +162,10 @@ export function registerAllHandlers(mainWindow: BrowserWindow): void {
 
   ipcMain.handle('process:list', async () => {
     return processes.list()
+  })
+
+  ipcMain.handle('process:killPort', async (_event, port: number) => {
+    return processes.killByPort(port)
   })
 
   // Docker
@@ -174,8 +210,28 @@ export function registerAllHandlers(mainWindow: BrowserWindow): void {
     return git.worktreeRemove(worktreePath)
   })
 
+  ipcMain.handle('git:checkout', async (_event, repoPath: string, branch: string) => {
+    return git.checkout(repoPath, branch)
+  })
+
+  ipcMain.handle('git:isDirty', async (_event, repoPath: string) => {
+    return git.isDirty(repoPath)
+  })
+
+  ipcMain.handle('git:stash', async (_event, repoPath: string, message?: string) => {
+    return git.stash(repoPath, message)
+  })
+
+  ipcMain.handle('git:stashPop', async (_event, repoPath: string) => {
+    return git.stashPop(repoPath)
+  })
+
   // Graceful shutdown
-  process.on('SIGTERM', () => processes.stopAll())
-  process.on('SIGINT', () => processes.stopAll())
-  mainWindow.on('close', () => processes.stopAll())
+  const cleanup = () => {
+    processes.stopAll()
+    gitWatcher.destroy()
+  }
+  process.on('SIGTERM', cleanup)
+  process.on('SIGINT', cleanup)
+  mainWindow.on('close', cleanup)
 }

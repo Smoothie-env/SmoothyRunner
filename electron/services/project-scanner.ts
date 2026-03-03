@@ -27,6 +27,8 @@ export interface ScannedFolderProject {
   solutionFile?: string
   hasDockerCompose: boolean
   dockerComposePath?: string
+  hasDevContainer: boolean
+  devContainerPath?: string
   branch?: string
   activeWorktreePath?: string
 }
@@ -48,6 +50,10 @@ export class ProjectScanner {
       ? path.join(dirPath, rootEntries.includes('docker-compose.yml') ? 'docker-compose.yml' : 'docker-compose.yaml')
       : undefined
 
+    // Detect devcontainer
+    const devContainerJsonPath = path.join(dirPath, '.devcontainer', 'devcontainer.json')
+    const hasDevContainer = await this.fileExists(devContainerJsonPath)
+
     const branch = await this.getCurrentBranch(dirPath)
 
     return {
@@ -59,6 +65,8 @@ export class ProjectScanner {
       solutionFile: slnFile ? path.join(dirPath, slnFile) : undefined,
       hasDockerCompose,
       dockerComposePath,
+      hasDevContainer,
+      devContainerPath: hasDevContainer ? devContainerJsonPath : undefined,
       branch
     }
   }
