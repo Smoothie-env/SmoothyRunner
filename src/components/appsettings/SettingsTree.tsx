@@ -41,12 +41,12 @@ export function SettingsTree() {
     setLoading(true)
     setLoadError(null)
     try {
-      const data = await window.sparkApi.readAppsettings(filePath)
+      const data = await window.smoothyApi.readAppsettings(filePath)
       setAppsettingsData(data as Record<string, unknown>)
       snapshotRef.current = structuredClone(data as Record<string, unknown>)
       setDirty(false)
       setExternalChange(false)
-      await window.sparkApi.watchAppsettings(filePath)
+      await window.smoothyApi.watchAppsettings(filePath)
     } catch (err: any) {
       console.error('Failed to read appsettings:', err)
       setAppsettingsData(null)
@@ -74,14 +74,14 @@ export function SettingsTree() {
 
     return () => {
       if (devFile) {
-        window.sparkApi.unwatchAppsettings(devFile)
+        window.smoothyApi.unwatchAppsettings(devFile)
       }
     }
   }, [subProject?.id, loadSettings, setActiveFile, setAppsettingsData])
 
   // Listen for external changes
   useEffect(() => {
-    const unsubscribe = window.sparkApi.onAppsettingsChanged(({ filePath }) => {
+    const unsubscribe = window.smoothyApi.onAppsettingsChanged(({ filePath }) => {
       if (filePath === activeFile) {
         setExternalChange(true)
       }
@@ -91,7 +91,7 @@ export function SettingsTree() {
 
   const handleFileChange = (filePath: string) => {
     if (activeFile) {
-      window.sparkApi.unwatchAppsettings(activeFile)
+      window.smoothyApi.unwatchAppsettings(activeFile)
     }
     setSourceView(false)
     setSourceError(null)
@@ -107,7 +107,7 @@ export function SettingsTree() {
       const content = viewRef.current.state.doc.toString()
       try {
         const parsed = JSON.parse(content)
-        await window.sparkApi.writeAppsettings(activeFile, parsed)
+        await window.smoothyApi.writeAppsettings(activeFile, parsed)
         setAppsettingsData(parsed)
         sourceContentRef.current = content
         setDirty(false)
@@ -117,7 +117,7 @@ export function SettingsTree() {
       }
     } else {
       if (!appsettingsData) return
-      await window.sparkApi.writeAppsettings(activeFile, appsettingsData)
+      await window.smoothyApi.writeAppsettings(activeFile, appsettingsData)
       setDirty(false)
     }
   }

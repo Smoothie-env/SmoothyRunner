@@ -1,2 +1,2 @@
 // Typed IPC helpers — thin wrappers for better DX
-export const ipc = window.sparkApi
+export const ipc = window.smoothyApi

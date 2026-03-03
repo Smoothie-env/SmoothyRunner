@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
-const sparkApi = {
+const smoothyApi = {
   // Folder Projects
   scanFolder: (dirPath: string) => ipcRenderer.invoke('projects:scanFolder', dirPath),
   listFolderProjects: () => ipcRenderer.invoke('projects:listFolderProjects'),
@@ -84,6 +84,6 @@ const sparkApi = {
   gitStashPop: (repoPath: string) => ipcRenderer.invoke('git:stashPop', repoPath)
 }
 
-contextBridge.exposeInMainWorld('sparkApi', sparkApi)
+contextBridge.exposeInMainWorld('smoothyApi', smoothyApi)
 
-export type SparkApi = typeof sparkApi
+export type SmoothyApi = typeof smoothyApi

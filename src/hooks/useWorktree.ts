@@ -9,7 +9,7 @@ export function useWorktrees(repoPath: string | undefined) {
     if (!repoPath) return
     setLoading(true)
     try {
-      const list = await window.sparkApi.gitWorktreeList(repoPath)
+      const list = await window.smoothyApi.gitWorktreeList(repoPath)
       setWorktrees(list)
     } catch {
       setWorktrees([])

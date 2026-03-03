@@ -7,7 +7,7 @@ export function useProcessPolling() {
   useEffect(() => {
     const poll = async () => {
       try {
-        const processes = await window.sparkApi.listProcesses()
+        const processes = await window.smoothyApi.listProcesses()
         setProcesses(processes)
       } catch {
         // Ignore polling errors

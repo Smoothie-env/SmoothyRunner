@@ -39,7 +39,7 @@ export function FolderProjectNode({ project }: FolderProjectNodeProps) {
 
   const loadWorktrees = async () => {
     try {
-      const list = await window.sparkApi.gitWorktreeList(project.originalRootPath)
+      const list = await window.smoothyApi.gitWorktreeList(project.originalRootPath)
       setWorktrees(list)
     } catch {
       setWorktrees([])
@@ -65,23 +65,23 @@ export function FolderProjectNode({ project }: FolderProjectNodeProps) {
 
   const handleMoveToGroup = async (groupId: string | null) => {
     setContextMenu(null)
-    await window.sparkApi.setProjectGroup(project.id, groupId)
+    await window.smoothyApi.setProjectGroup(project.id, groupId)
     updateFolderProject(project.id, { groupId: groupId || undefined })
   }
 
   const handleRemove = (e: React.MouseEvent) => {
     e.stopPropagation()
-    window.sparkApi.removeFolderProject(project.id)
+    window.smoothyApi.removeFolderProject(project.id)
     removeFolderProject(project.id)
   }
 
   const handleWorktreeSwitch = async (worktreePath: string) => {
     const isMain = worktreePath === project.originalRootPath
-    await window.sparkApi.setProjectWorktree(project.id, isMain ? null : worktreePath)
+    await window.smoothyApi.setProjectWorktree(project.id, isMain ? null : worktreePath)
 
     // Rescan from new path
     try {
-      const scanned = await window.sparkApi.scanFolder(worktreePath)
+      const scanned = await window.smoothyApi.scanFolder(worktreePath)
       updateFolderProject(project.id, {
         rootPath: worktreePath,
         activeWorktreePath: isMain ? undefined : worktreePath,

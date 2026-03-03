@@ -17,7 +17,7 @@ export function LogViewer({ processId }: LogViewerProps) {
   useEffect(() => {
     setLogs([])
 
-    const unsubscribe = window.sparkApi.onProcessLog(({ id, data }) => {
+    const unsubscribe = window.smoothyApi.onProcessLog(({ id, data }) => {
       if (id === processId) {
         setLogs(prev => {
           const next = [...prev, data]

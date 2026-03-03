@@ -43,7 +43,7 @@ export function GroupHeader({ group, isExpanded, onToggle, projectCount }: Group
     const trimmed = renameValue.trim()
     if (trimmed && trimmed !== group.name) {
       renameGroup(group.id, trimmed)
-      window.sparkApi.renameGroup(group.id, trimmed)
+      window.smoothyApi.renameGroup(group.id, trimmed)
     } else {
       setRenameValue(group.name)
     }
@@ -53,7 +53,7 @@ export function GroupHeader({ group, isExpanded, onToggle, projectCount }: Group
   const handleDelete = () => {
     setShowMenu(false)
     removeGroup(group.id)
-    window.sparkApi.removeGroup(group.id)
+    window.smoothyApi.removeGroup(group.id)
   }
 
   const handleStartRename = () => {

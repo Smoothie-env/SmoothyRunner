@@ -45,13 +45,13 @@ export interface ProjectProfileData {
   files: Record<string, FileProfileData>
 }
 
-export interface SparkConfig {
+export interface SmoothyConfig {
   folderProjects: FolderProjectConfig[]
   profiles: Record<string, ProjectProfileData>
   groups: ProjectGroup[]
 }
 
-interface LegacySparkConfig {
+interface LegacySmoothyConfig {
   projects?: LegacyProjectConfig[]
   folderProjects?: FolderProjectConfig[]
   profiles: Record<string, unknown>
@@ -60,23 +60,23 @@ interface LegacySparkConfig {
 export class ConfigManager {
   private configDir: string
   private configPath: string
-  private config: SparkConfig | null = null
+  private config: SmoothyConfig | null = null
 
   constructor() {
-    this.configDir = path.join(os.homedir(), '.spark-project-manager')
-    this.configPath = path.join(this.configDir, 'spark-projects.json')
+    this.configDir = path.join(os.homedir(), '.smoothy-runner')
+    this.configPath = path.join(this.configDir, 'smoothy-projects.json')
   }
 
   private async ensureConfigDir(): Promise<void> {
     await fs.mkdir(this.configDir, { recursive: true })
   }
 
-  private async load(): Promise<SparkConfig> {
+  private async load(): Promise<SmoothyConfig> {
     if (this.config) return this.config
 
     try {
       const content = await fs.readFile(this.configPath, 'utf-8')
-      const raw = JSON.parse(content) as LegacySparkConfig
+      const raw = JSON.parse(content) as LegacySmoothyConfig
 
       // Migrate old format
       if (raw.projects && !raw.folderProjects) {
@@ -109,7 +109,7 @@ export class ConfigManager {
     }
   }
 
-  private migrateFromLegacy(raw: LegacySparkConfig): SparkConfig {
+  private migrateFromLegacy(raw: LegacySmoothyConfig): SmoothyConfig {
     const projects = raw.projects || []
     const grouped = new Map<string, LegacyProjectConfig[]>()
 
@@ -186,7 +186,7 @@ export class ConfigManager {
   }
 
   // Profile storage
-  private ensureFileEntry(config: SparkConfig, projectId: string, filePath: string): FileProfileData {
+  private ensureFileEntry(config: SmoothyConfig, projectId: string, filePath: string): FileProfileData {
     if (!config.profiles[projectId]) {
       config.profiles[projectId] = { files: {} }
     }

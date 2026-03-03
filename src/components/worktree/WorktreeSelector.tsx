@@ -25,7 +25,7 @@ export function WorktreeSelector({ project, worktrees, onSwitch, onRefresh }: Wo
     if (!newBranch.trim()) return
     setCreating(true)
     try {
-      await window.sparkApi.gitWorktreeAdd(project.originalRootPath, newBranch.trim(), '')
+      await window.smoothyApi.gitWorktreeAdd(project.originalRootPath, newBranch.trim(), '')
       onRefresh()
       setCreateOpen(false)
       setNewBranch('')
@@ -38,7 +38,7 @@ export function WorktreeSelector({ project, worktrees, onSwitch, onRefresh }: Wo
 
   const handleRemove = async (worktreePath: string) => {
     try {
-      await window.sparkApi.gitWorktreeRemove(worktreePath)
+      await window.smoothyApi.gitWorktreeRemove(worktreePath)
       onRefresh()
     } catch (err) {
       console.error('Failed to remove worktree:', err)

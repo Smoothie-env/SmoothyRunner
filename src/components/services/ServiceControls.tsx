@@ -39,7 +39,7 @@ export function ServiceControls({ subProject, processInfo, project }: ServiceCon
   const hasDevContainer = project?.hasDevContainer ?? false
 
   const refreshProcesses = async () => {
-    const list = await window.sparkApi.listProcesses()
+    const list = await window.smoothyApi.listProcesses()
     setProcesses(list)
   }
 
@@ -47,7 +47,7 @@ export function ServiceControls({ subProject, processInfo, project }: ServiceCon
     setLoading(true)
     setError(null)
     try {
-      await window.sparkApi.startProcess({
+      await window.smoothyApi.startProcess({
         id: subProject.id,
         name: subProject.name,
         type: 'dotnet',
@@ -69,7 +69,7 @@ export function ServiceControls({ subProject, processInfo, project }: ServiceCon
     setLoading(true)
     setError(null)
     try {
-      await window.sparkApi.stopProcess(subProject.id)
+      await window.smoothyApi.stopProcess(subProject.id)
       await refreshProcesses()
     } catch (err: any) {
       setError(err.message || 'Failed to stop')
@@ -82,7 +82,7 @@ export function ServiceControls({ subProject, processInfo, project }: ServiceCon
     setLoading(true)
     setError(null)
     try {
-      await window.sparkApi.restartProcess(subProject.id)
+      await window.smoothyApi.restartProcess(subProject.id)
       await refreshProcesses()
     } catch (err: any) {
       setError(err.message || 'Failed to restart')
@@ -192,10 +192,10 @@ export function ServiceControls({ subProject, processInfo, project }: ServiceCon
                 if (!port) return
                 setLoading(true)
                 try {
-                  await window.sparkApi.killPort(port)
+                  await window.smoothyApi.killPort(port)
                   setError(null)
                   // Auto-retry start
-                  await window.sparkApi.startProcess({
+                  await window.smoothyApi.startProcess({
                     id: subProject.id,
                     name: subProject.name,
                     type: 'dotnet',

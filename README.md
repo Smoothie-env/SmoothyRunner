@@ -1,4 +1,4 @@
-# Spark Project Manager
+# SmoothyRunner
 
 Desktop tool for managing .NET microservice projects — folder-based project tree, appsettings editor, service runner, Docker Compose control, and git worktree switching.
 
@@ -15,15 +15,15 @@ Desktop tool for managing .NET microservice projects — folder-based project tr
 ## Architecture
 
 ```
-spark-project-manager/
+smoothy-runner/
 ├── electron/               # Main process
 │   ├── main.ts             # App entry, window creation
-│   ├── preload.ts          # Context bridge (sparkApi)
+│   ├── preload.ts          # Context bridge (smoothyApi)
 │   ├── ipc/
 │   │   └── registry.ts     # IPC handler registration
 │   └── services/
 │       ├── project-scanner.ts   # Folder scanning, .csproj discovery
-│       ├── config-manager.ts    # Persistent config (~/.spark-project-manager/)
+│       ├── config-manager.ts    # Persistent config (~/.smoothy-runner/)
 │       ├── profile-manager.ts   # Appsettings profile save/apply
 │       ├── appsettings-manager.ts
 │       ├── process-manager.ts   # dotnet watch run
@@ -54,7 +54,7 @@ spark-project-manager/
 - **SubProject[]** — each `.csproj` found inside, classified as `runnable` (has Program.cs) or `library`
 - Docker Compose info, solution file, git branch, active worktree path
 
-SubProjects are **not persisted** — they are rescanned on each app load. Only folder-level config is saved to `~/.spark-project-manager/spark-projects.json`.
+SubProjects are **not persisted** — they are rescanned on each app load. Only folder-level config is saved to `~/.smoothy-runner/smoothy-projects.json`.
 
 ## Commands
 
@@ -77,7 +77,7 @@ npx electron-builder build
 
 ## Config
 
-Persisted at `~/.spark-project-manager/spark-projects.json`:
+Persisted at `~/.smoothy-runner/smoothy-projects.json`:
 
 ```json
 {

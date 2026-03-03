@@ -46,13 +46,13 @@ export function AddProjectDialog({ open, onOpenChange }: AddProjectDialogProps) 
   const addGroup = useProjectStore(s => s.addGroup)
 
   const handleSelectFolder = async () => {
-    const dir = await window.sparkApi.selectDirectory()
+    const dir = await window.smoothyApi.selectDirectory()
     if (!dir) return
 
     setSelectedDir(dir)
     setScanning(true)
     try {
-      const project = await window.sparkApi.scanFolder(dir)
+      const project = await window.smoothyApi.scanFolder(dir)
       setScannedProject(project)
     } catch (err) {
       console.error('Scan failed:', err)
@@ -66,7 +66,7 @@ export function AddProjectDialog({ open, onOpenChange }: AddProjectDialogProps) 
 
     let groupId: string | undefined = undefined
     if (showNewGroupInput && newGroupName.trim()) {
-      const newGroup = await window.sparkApi.addGroup(newGroupName.trim())
+      const newGroup = await window.smoothyApi.addGroup(newGroupName.trim())
       addGroup(newGroup)
       groupId = newGroup.id
     } else if (selectedGroupId !== '__none__') {
@@ -74,7 +74,7 @@ export function AddProjectDialog({ open, onOpenChange }: AddProjectDialogProps) 
     }
 
     const projectWithGroup = { ...scannedProject, groupId }
-    await window.sparkApi.addFolderProject(projectWithGroup)
+    await window.smoothyApi.addFolderProject(projectWithGroup)
     addFolderProject(projectWithGroup)
     handleClose()
   }

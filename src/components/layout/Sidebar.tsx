@@ -32,7 +32,7 @@ export function Sidebar({ width }: SidebarProps) {
       return
     }
     try {
-      const group = await window.sparkApi.addGroup(name)
+      const group = await window.smoothyApi.addGroup(name)
       addGroup(group)
     } catch (err) {
       console.error('Failed to create group:', err)
@@ -47,7 +47,7 @@ export function Sidebar({ width }: SidebarProps) {
       <div className="titlebar-drag h-12 flex items-center gap-2 px-4 border-b shrink-0">
         <div className="w-[68px]" /> {/* Space for traffic lights */}
         <Zap className="h-4 w-4 text-primary titlebar-no-drag" />
-        <span className="text-sm font-semibold titlebar-no-drag">Spark</span>
+        <span className="text-sm font-semibold titlebar-no-drag">SmoothyRunner</span>
       </div>
 
       {/* Projects header */}

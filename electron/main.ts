@@ -10,7 +10,7 @@ function createWindow(): void {
     height: 900,
     minWidth: 1024,
     minHeight: 700,
-    title: 'Spark Project Manager',
+    title: 'SmoothyRunner',
     backgroundColor: '#09090b',
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 16, y: 16 },

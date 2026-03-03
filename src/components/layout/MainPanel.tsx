@@ -58,7 +58,7 @@ export function MainPanel() {
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
             <Zap className="h-16 w-16 text-muted-foreground/10 mx-auto mb-4" />
-            <h2 className="text-lg font-medium text-muted-foreground/50 mb-1">Spark Project Manager</h2>
+            <h2 className="text-lg font-medium text-muted-foreground/50 mb-1">SmoothyRunner</h2>
             <p className="text-sm text-muted-foreground/30">Select a project from the sidebar to get started</p>
           </div>
         </div>

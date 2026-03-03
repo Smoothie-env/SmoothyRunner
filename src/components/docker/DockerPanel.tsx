@@ -23,7 +23,7 @@ export function DockerPanel() {
   const refresh = useCallback(async () => {
     if (!composePath) return
     try {
-      const containers = await window.sparkApi.dockerStatus(composePath, profiles)
+      const containers = await window.smoothyApi.dockerStatus(composePath, profiles)
       setDockerContainers(containers)
     } catch (err) {
       console.error('Docker status failed:', err)
@@ -57,7 +57,7 @@ export function DockerPanel() {
   const handleStartAll = async (services: DockerContainer[]) => {
     setLoading(true)
     try {
-      await window.sparkApi.dockerUp(composePath, services.map(s => s.service), profiles)
+      await window.smoothyApi.dockerUp(composePath, services.map(s => s.service), profiles)
       await refresh()
     } finally {
       setLoading(false)
@@ -67,7 +67,7 @@ export function DockerPanel() {
   const handleStopAll = async (services: DockerContainer[]) => {
     setLoading(true)
     try {
-      await window.sparkApi.dockerDown(composePath, services.map(s => s.service), profiles)
+      await window.smoothyApi.dockerDown(composePath, services.map(s => s.service), profiles)
       await refresh()
     } finally {
       setLoading(false)
@@ -75,17 +75,17 @@ export function DockerPanel() {
   }
 
   const handleStartService = async (service: string) => {
-    await window.sparkApi.dockerUp(composePath, [service], profiles)
+    await window.smoothyApi.dockerUp(composePath, [service], profiles)
     await refresh()
   }
 
   const handleStopService = async (service: string) => {
-    await window.sparkApi.dockerDown(composePath, [service], profiles)
+    await window.smoothyApi.dockerDown(composePath, [service], profiles)
     await refresh()
   }
 
   const handleRestartService = async (service: string) => {
-    await window.sparkApi.dockerRestart(composePath, [service], profiles)
+    await window.smoothyApi.dockerRestart(composePath, [service], profiles)
     await refresh()
   }
 

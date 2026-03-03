@@ -37,7 +37,7 @@ export function StatusBar() {
         </span>
       )}
 
-      <span className="ml-auto">Spark v1.0.0</span>
+      <span className="ml-auto">SmoothyRunner v1.0.0</span>
     </div>
   )
 }

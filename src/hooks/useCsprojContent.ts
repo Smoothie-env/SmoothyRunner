@@ -16,7 +16,7 @@ export function useCsprojContent() {
     const load = async () => {
       setCsprojLoading(true)
       try {
-        const content = await window.sparkApi.readFileContent(subProject.csprojPath)
+        const content = await window.smoothyApi.readFileContent(subProject.csprojPath)
         if (!cancelled) setCsprojContent(content)
       } catch (err) {
         console.error('Failed to read csproj:', err)

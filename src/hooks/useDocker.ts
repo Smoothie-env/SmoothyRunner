@@ -9,7 +9,7 @@ export function useDockerStatus(composePath: string | undefined, profiles: strin
 
     const poll = async () => {
       try {
-        const containers = await window.sparkApi.dockerStatus(composePath, profiles)
+        const containers = await window.smoothyApi.dockerStatus(composePath, profiles)
         setDockerContainers(containers)
       } catch {
         // Ignore

@@ -38,7 +38,7 @@ export function CsprojViewer() {
     const content = getEditorContent()
     setSaving(true)
     try {
-      await window.sparkApi.writeFileContent(subProject.csprojPath, content)
+      await window.smoothyApi.writeFileContent(subProject.csprojPath, content)
       loadedContentRef.current = content
       setCsprojDirty(false)
       setCsprojContent(content)
@@ -61,7 +61,7 @@ export function CsprojViewer() {
     if (!subProject) return
     setCsprojLoading(true)
     try {
-      const content = await window.sparkApi.readFileContent(subProject.csprojPath)
+      const content = await window.smoothyApi.readFileContent(subProject.csprojPath)
       setCsprojContent(content)
       setCsprojDirty(false)
       loadedContentRef.current = content

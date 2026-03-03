@@ -1,5 +1,5 @@
 {
-  "name": "spark-project-manager",
+  "name": "smoothy-runner",
   "version": "1.0.0",
   "description": "Desktop tool for managing .NET/Angular microservice projects",
   "main": "out/main/main.js",

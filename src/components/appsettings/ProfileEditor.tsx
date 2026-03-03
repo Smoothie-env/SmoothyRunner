@@ -15,14 +15,14 @@ export function ProfileEditor({ open, onOpenChange, onSaved }: ProfileEditorProp
   const [saving, setSaving] = useState(false)
   const project = useProjectStore(s => s.activeProject())
   const appsettingsData = useProjectStore(s => s.appsettingsData)
+  const activeFile = useProjectStore(s => s.activeAppsettingsFile)
 
   const handleSave = async () => {
-    if (!project || !appsettingsData || !name.trim()) return
+    if (!project || !appsettingsData || !activeFile || !name.trim()) return
 
     setSaving(true)
     try {
-      // Save the current appsettings state as an overlay profile
-      await window.sparkApi.saveProfile(project.id, name.trim(), appsettingsData)
+      await window.smoothyApi.saveProfile(project.id, activeFile, name.trim(), appsettingsData)
       onSaved()
       setName('')
     } catch (err) {
@@ -56,8 +56,8 @@ export function ProfileEditor({ open, onOpenChange, onSaved }: ProfileEditorProp
 
           <div className="rounded-md bg-muted/50 p-3">
             <p className="text-xs text-muted-foreground">
-              This will snapshot the current appsettings values. When you apply this profile later,
-              it will overwrite the Development settings file with these values.
+              Only the differences from the original file will be stored. When applied,
+              the profile will be merged onto the baseline without writing to disk.
             </p>
           </div>
         </div>

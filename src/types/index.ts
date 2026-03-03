@@ -77,7 +77,7 @@ export interface Profile {
 
 declare global {
   interface Window {
-    sparkApi: {
+    smoothyApi: {
       // Folder Projects
       scanFolder: (dirPath: string) => Promise<FolderProject>
       listFolderProjects: () => Promise<FolderProject[]>

@@ -1,53 +1,61 @@
 import { useEffect, useState } from 'react'
 import { useProjectStore } from '@/stores/projectStore'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { ProfileEditor } from './ProfileEditor'
-import { ChevronDown, Check, Plus, Trash2 } from 'lucide-react'
+import { ChevronDown, Check, Plus, Trash2, RotateCcw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export function ProfileSelector() {
   const project = useProjectStore(s => s.activeProject())
+  const activeFile = useProjectStore(s => s.activeAppsettingsFile)
+  const activeProfile = useProjectStore(s => s.activeProfile)
+  const setActiveProfile = useProjectStore(s => s.setActiveProfile)
+  const setAppsettingsData = useProjectStore(s => s.setAppsettingsData)
+  const setAppsettingsDirty = useProjectStore(s => s.setAppsettingsDirty)
+
   const [profiles, setProfiles] = useState<string[]>([])
-  const [activeProfile, setActiveProfile] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
   const [editorOpen, setEditorOpen] = useState(false)
-  const [modified, setModified] = useState(false)
 
   useEffect(() => {
-    if (!project) return
+    if (!project || !activeFile) return
     loadProfiles()
-  }, [project?.id])
+  }, [project?.id, activeFile])
 
   const loadProfiles = async () => {
-    if (!project) return
-    const list = await window.sparkApi.listProfiles(project.id)
+    if (!project || !activeFile) return
+    const list = await window.smoothyApi.listProfiles(project.id, activeFile)
     setProfiles(list)
   }
 
   const handleApply = async (name: string) => {
-    if (!project) return
-    const result = await window.sparkApi.applyProfile(project.id, name)
-    if (result.success) {
+    if (!project || !activeFile) return
+    const result = await window.smoothyApi.applyProfile(project.id, activeFile, name)
+    if (result.merged) {
+      setAppsettingsData(result.merged)
+      setAppsettingsDirty(true)
       setActiveProfile(name)
-      setModified(false)
       setOpen(false)
-      // Reload appsettings
-      const activeFile = useProjectStore.getState().activeAppsettingsFile
-      if (activeFile) {
-        const data = await window.sparkApi.readAppsettings(activeFile)
-        useProjectStore.getState().setAppsettingsData(data as Record<string, unknown>)
-        useProjectStore.getState().setAppsettingsDirty(false)
-      }
     }
   }
 
   const handleDelete = async (name: string, e: React.MouseEvent) => {
     e.stopPropagation()
-    if (!project) return
-    await window.sparkApi.deleteProfile(project.id, name)
+    if (!project || !activeFile) return
+    await window.smoothyApi.deleteProfile(project.id, activeFile, name)
     if (activeProfile === name) setActiveProfile(null)
     await loadProfiles()
+  }
+
+  const handleReset = async () => {
+    if (!project || !activeFile) return
+    const baseline = await window.smoothyApi.getBaseline(project.id, activeFile)
+    if (baseline) {
+      setAppsettingsData(baseline)
+      setAppsettingsDirty(true)
+      setActiveProfile(null)
+    }
+    setOpen(false)
   }
 
   const handleProfileSaved = () => {
@@ -67,7 +75,6 @@ export function ProfileSelector() {
           onClick={() => setOpen(!open)}
         >
           {activeProfile || 'Profiles'}
-          {modified && <Badge variant="warning" className="ml-1 text-[10px] px-1 py-0">modified</Badge>}
           <ChevronDown className="h-3 w-3" />
         </Button>
 
@@ -78,25 +85,36 @@ export function ProfileSelector() {
                 <p className="text-xs text-muted-foreground mb-2">No profiles yet</p>
               </div>
             ) : (
-              profiles.map(name => (
-                <button
-                  key={name}
-                  className={cn(
-                    'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent group',
-                    name === activeProfile && 'bg-accent'
-                  )}
-                  onClick={() => handleApply(name)}
-                >
-                  {name === activeProfile && <Check className="h-3.5 w-3.5 text-primary" />}
-                  <span className={cn(name !== activeProfile && 'ml-5.5')}>{name}</span>
+              <>
+                {profiles.map(name => (
                   <button
-                    className="ml-auto opacity-0 group-hover:opacity-100 hover:text-destructive"
-                    onClick={(e) => handleDelete(name, e)}
+                    key={name}
+                    className={cn(
+                      'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent group',
+                      name === activeProfile && 'bg-accent'
+                    )}
+                    onClick={() => handleApply(name)}
                   >
-                    <Trash2 className="h-3 w-3" />
+                    {name === activeProfile && <Check className="h-3.5 w-3.5 text-primary" />}
+                    <span className={cn(name !== activeProfile && 'ml-5.5')}>{name}</span>
+                    <button
+                      className="ml-auto opacity-0 group-hover:opacity-100 hover:text-destructive"
+                      onClick={(e) => handleDelete(name, e)}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
                   </button>
-                </button>
-              ))
+                ))}
+                <div className="border-t mt-1 pt-1">
+                  <button
+                    className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent text-muted-foreground"
+                    onClick={handleReset}
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    Reset to Original
+                  </button>
+                </div>
+              </>
             )}
             <div className="border-t mt-1 pt-1">
               <button

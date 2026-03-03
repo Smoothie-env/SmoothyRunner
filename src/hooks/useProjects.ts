@@ -9,8 +9,8 @@ export function useProjects() {
     const load = async () => {
       try {
         const [projects, groups] = await Promise.all([
-          window.sparkApi.listFolderProjects(),
-          window.sparkApi.listGroups()
+          window.smoothyApi.listFolderProjects(),
+          window.smoothyApi.listGroups()
         ])
         setFolderProjects(projects)
         setGroups(groups)
