@@ -1,8 +1,24 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { cn } from '@/lib/utils'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { ChevronRight, Braces, Hash, Type, ToggleLeft, List } from 'lucide-react'
+
+function matchesSearch(name: string, value: unknown, query: string): boolean {
+  const q = query.toLowerCase()
+  if (name.toLowerCase().includes(q)) return true
+  if (typeof value === 'string' && value.toLowerCase().includes(q)) return true
+  if (typeof value === 'number' && String(value).includes(q)) return true
+  if (typeof value === 'boolean' && String(value).includes(q)) return true
+  if (Array.isArray(value)) {
+    return value.some((item, i) => matchesSearch(`[${i}]`, item, q))
+  }
+  if (value !== null && typeof value === 'object') {
+    return Object.entries(value as Record<string, unknown>)
+      .some(([k, v]) => matchesSearch(k, v, q))
+  }
+  return false
+}
 
 interface SettingsNodeProps {
   name: string
@@ -11,15 +27,29 @@ interface SettingsNodeProps {
   onChange: (path: string[], value: unknown) => void
   defaultOpen?: boolean
   depth?: number
+  expandSignal?: { action: 'expand' | 'collapse'; v: number }
+  searchQuery?: string
 }
 
-export function SettingsNode({ name, value, path, onChange, defaultOpen = false, depth = 0 }: SettingsNodeProps) {
+export function SettingsNode({ name, value, path, onChange, defaultOpen = false, depth = 0, expandSignal, searchQuery }: SettingsNodeProps) {
   const [open, setOpen] = useState(defaultOpen)
   const [editing, setEditing] = useState(false)
+
+  useEffect(() => {
+    if (!expandSignal || expandSignal.v === 0) return
+    setOpen(expandSignal.action === 'expand')
+  }, [expandSignal?.v])
+
+  // Search filter: hide non-matching nodes
+  if (searchQuery && !matchesSearch(name, value, searchQuery)) return null
+
+  // Auto-expand when search matches a descendant
+  const shouldForceOpen = !!(searchQuery && value !== null && typeof value === 'object' && matchesSearch(name, value, searchQuery))
 
   // Object
   if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
     const entries = Object.entries(value as Record<string, unknown>)
+    const isOpen = open || shouldForceOpen
     return (
       <div>
         <button
@@ -27,12 +57,12 @@ export function SettingsNode({ name, value, path, onChange, defaultOpen = false,
           onClick={() => setOpen(!open)}
           style={{ paddingLeft: `${depth * 16 + 4}px` }}
         >
-          <ChevronRight className={cn('h-3.5 w-3.5 text-muted-foreground transition-transform shrink-0', open && 'rotate-90')} />
+          <ChevronRight className={cn('h-3.5 w-3.5 text-muted-foreground transition-transform shrink-0', isOpen && 'rotate-90')} />
           <Braces className="h-3.5 w-3.5 text-blue-400 shrink-0" />
           <span className="text-sm font-medium">{name}</span>
           <span className="text-xs text-muted-foreground ml-1">({entries.length})</span>
         </button>
-        {open && (
+        {isOpen && (
           <div>
             {entries.map(([key, val]) => (
               <SettingsNode
@@ -43,6 +73,8 @@ export function SettingsNode({ name, value, path, onChange, defaultOpen = false,
                 onChange={onChange}
                 defaultOpen={key === 'ConnectionStrings'}
                 depth={depth + 1}
+                expandSignal={expandSignal}
+                searchQuery={searchQuery}
               />
             ))}
           </div>
@@ -53,6 +85,7 @@ export function SettingsNode({ name, value, path, onChange, defaultOpen = false,
 
   // Array
   if (Array.isArray(value)) {
+    const isOpen = open || shouldForceOpen
     return (
       <div>
         <button
@@ -60,12 +93,12 @@ export function SettingsNode({ name, value, path, onChange, defaultOpen = false,
           onClick={() => setOpen(!open)}
           style={{ paddingLeft: `${depth * 16 + 4}px` }}
         >
-          <ChevronRight className={cn('h-3.5 w-3.5 text-muted-foreground transition-transform shrink-0', open && 'rotate-90')} />
+          <ChevronRight className={cn('h-3.5 w-3.5 text-muted-foreground transition-transform shrink-0', isOpen && 'rotate-90')} />
           <List className="h-3.5 w-3.5 text-yellow-400 shrink-0" />
           <span className="text-sm font-medium">{name}</span>
           <span className="text-xs text-muted-foreground ml-1">[{value.length}]</span>
         </button>
-        {open && (
+        {isOpen && (
           <div>
             {value.map((item, index) => (
               <SettingsNode
@@ -75,6 +108,8 @@ export function SettingsNode({ name, value, path, onChange, defaultOpen = false,
                 path={[...path, String(index)]}
                 onChange={onChange}
                 depth={depth + 1}
+                expandSignal={expandSignal}
+                searchQuery={searchQuery}
               />
             ))}
           </div>

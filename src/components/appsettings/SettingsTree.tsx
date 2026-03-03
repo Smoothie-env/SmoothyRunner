@@ -1,12 +1,13 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useProjectStore } from '@/stores/projectStore'
 import { SettingsNode } from './SettingsNode'
 import { ProfileSelector } from './ProfileSelector'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Select, SelectItem } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
-import { Save, RefreshCw, FileJson } from 'lucide-react'
+import { Save, RefreshCw, FileJson, AlertCircle, Search, ChevronsUpDown, ChevronsDownUp, Undo2 } from 'lucide-react'
 
 export function SettingsTree() {
   const subProject = useProjectStore(s => s.activeSubProject())
@@ -17,24 +18,32 @@ export function SettingsTree() {
   const setActiveFile = useProjectStore(s => s.setActiveAppsettingsFile)
   const setDirty = useProjectStore(s => s.setAppsettingsDirty)
   const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [externalChange, setExternalChange] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [expandSignal, setExpandSignal] = useState<{ action: 'expand' | 'collapse'; v: number }>({ action: 'collapse', v: 0 })
+  const snapshotRef = useRef<Record<string, unknown> | null>(null)
 
   const loadSettings = useCallback(async (filePath: string) => {
     setLoading(true)
+    setLoadError(null)
     try {
       const data = await window.sparkApi.readAppsettings(filePath)
       setAppsettingsData(data as Record<string, unknown>)
+      snapshotRef.current = structuredClone(data as Record<string, unknown>)
       setDirty(false)
       setExternalChange(false)
       await window.sparkApi.watchAppsettings(filePath)
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to read appsettings:', err)
+      setAppsettingsData(null)
+      setLoadError(err.message || 'Failed to read file')
     } finally {
       setLoading(false)
     }
   }, [setAppsettingsData, setDirty])
 
-  // Auto-select Development file
+  // Auto-select Development file and load on subproject change
   useEffect(() => {
     if (!subProject || subProject.appsettingsFiles.length === 0) {
       setActiveFile(null)
@@ -45,17 +54,17 @@ export function SettingsTree() {
     const devFile = subProject.appsettingsFiles.find(f => f.includes('Development'))
       || subProject.appsettingsFiles[0]
 
-    if (devFile && devFile !== activeFile) {
+    if (devFile) {
       setActiveFile(devFile)
       loadSettings(devFile)
     }
 
     return () => {
-      if (activeFile) {
-        window.sparkApi.unwatchAppsettings(activeFile)
+      if (devFile) {
+        window.sparkApi.unwatchAppsettings(devFile)
       }
     }
-  }, [subProject?.id])
+  }, [subProject?.id, loadSettings, setActiveFile, setAppsettingsData])
 
   // Listen for external changes
   useEffect(() => {
@@ -85,6 +94,12 @@ export function SettingsTree() {
     if (activeFile) {
       loadSettings(activeFile)
     }
+  }
+
+  const handleRevert = () => {
+    if (!snapshotRef.current) return
+    setAppsettingsData(structuredClone(snapshotRef.current))
+    setDirty(false)
   }
 
   const handleValueChange = (path: string[], value: unknown) => {
@@ -130,6 +145,48 @@ export function SettingsTree() {
 
         <ProfileSelector />
 
+        <div className="h-5 w-px bg-border mx-1" />
+
+        <div className="relative">
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          <Input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search keys..."
+            className="h-7 w-[180px] pl-7 text-xs"
+          />
+        </div>
+
+        <div className="h-5 w-px bg-border mx-1" />
+
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => setExpandSignal({ action: 'expand', v: Date.now() })}
+          title="Expand All"
+        >
+          <ChevronsUpDown className="h-4 w-4" />
+        </Button>
+
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => setExpandSignal({ action: 'collapse', v: Date.now() })}
+          title="Collapse All"
+        >
+          <ChevronsDownUp className="h-4 w-4" />
+        </Button>
+
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={handleRevert}
+          disabled={!dirty}
+          title="Revert changes"
+        >
+          <Undo2 className="h-4 w-4" />
+        </Button>
+
         <div className="flex-1" />
 
         {externalChange && (
@@ -156,6 +213,15 @@ export function SettingsTree() {
           <div className="flex items-center justify-center py-8">
             <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground" />
           </div>
+        ) : loadError ? (
+          <div className="flex flex-col items-center justify-center py-8 gap-3">
+            <AlertCircle className="h-8 w-8 text-destructive/60" />
+            <p className="text-sm text-destructive">{loadError}</p>
+            <Button variant="outline" size="sm" onClick={handleReload}>
+              <RefreshCw className="h-3.5 w-3.5 mr-1" />
+              Retry
+            </Button>
+          </div>
         ) : appsettingsData ? (
           <div className="space-y-1">
             {Object.entries(appsettingsData).map(([key, value]) => (
@@ -166,6 +232,8 @@ export function SettingsTree() {
                 path={[key]}
                 onChange={handleValueChange}
                 defaultOpen={key === 'ConnectionStrings'}
+                expandSignal={expandSignal}
+                searchQuery={searchQuery}
               />
             ))}
           </div>
