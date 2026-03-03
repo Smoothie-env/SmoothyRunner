@@ -3,8 +3,9 @@ export interface SubProject {
   name: string
   csprojPath: string
   dirPath: string
-  kind: 'runnable' | 'library'
+  kind: 'runnable' | 'package' | 'library'
   targetFramework?: string
+  version?: string
   port?: number
   appsettingsFiles: string[]
 }
@@ -74,6 +75,7 @@ declare global {
 
       // File system
       readFileContent: (filePath: string) => Promise<string>
+      writeFileContent: (filePath: string, content: string) => Promise<void>
 
       // Appsettings
       readAppsettings: (filePath: string) => Promise<unknown>

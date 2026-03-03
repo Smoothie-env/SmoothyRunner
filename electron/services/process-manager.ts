@@ -25,8 +25,16 @@ export interface ProcessInfo {
 
 const LOG_BUFFER_SIZE = 10000
 
+interface ProcessEntry {
+  proc: ChildProcess
+  config: ProcessConfig
+  logs: string[]
+  exited: boolean
+  startedAt: string
+}
+
 export class ProcessManager {
-  private processes = new Map<string, { proc: ChildProcess; config: ProcessConfig; logs: string[] }>()
+  private processes = new Map<string, ProcessEntry>()
   private mainWindow: BrowserWindow
 
   constructor(mainWindow: BrowserWindow) {
@@ -37,8 +45,8 @@ export class ProcessManager {
     // Check if already running
     if (this.processes.has(config.id)) {
       const existing = this.processes.get(config.id)!
-      if (existing.proc.exitCode === null) {
-        return this.toInfo(config, existing.proc)
+      if (!existing.exited) {
+        return this.toInfo(existing)
       }
       this.processes.delete(config.id)
     }
@@ -74,7 +82,13 @@ export class ProcessManager {
     }
 
     const logs: string[] = []
-    const entry = { proc, config, logs }
+    const entry: ProcessEntry = {
+      proc,
+      config,
+      logs,
+      exited: false,
+      startedAt: new Date().toISOString()
+    }
     this.processes.set(config.id, entry)
 
     const pushLog = (data: Buffer) => {
@@ -89,34 +103,112 @@ export class ProcessManager {
     proc.stdout?.on('data', pushLog)
     proc.stderr?.on('data', pushLog)
 
-    proc.on('exit', (code) => {
-      const exitMsg = `\r\n[Process exited with code ${code}]\r\n`
-      pushLog(Buffer.from(exitMsg))
+    proc.on('exit', (code, signal) => {
+      entry.exited = true
+      const reason = signal ? `signal ${signal}` : `code ${code}`
+      pushLog(Buffer.from(`\r\n[Process exited with ${reason}]\r\n`))
     })
 
-    return this.toInfo(config, proc)
+    return this.toInfo(entry)
   }
 
   async stop(id: string): Promise<void> {
     const entry = this.processes.get(id)
-    if (!entry || entry.proc.exitCode !== null) return
+    if (!entry || entry.exited) return
 
-    entry.proc.kill('SIGTERM')
+    const pid = entry.proc.pid
+    if (!pid) return
 
-    // Wait up to 5s for graceful shutdown, then SIGKILL
-    await new Promise<void>((resolve) => {
+    // Phase 1: Graceful — SIGINT to entire tree (how Ctrl+C works)
+    // dotnet watch responds to SIGINT properly, SIGTERM sometimes leaves it in "waiting" state
+    await this.killTree(pid, 'SIGINT')
+
+    if (await this.waitForExit(entry, 3000)) return
+
+    // Phase 2: SIGTERM entire tree
+    await this.killTree(pid, 'SIGTERM')
+
+    if (await this.waitForExit(entry, 3000)) return
+
+    // Phase 3: SIGKILL — force kill everything
+    await this.killTree(pid, 'SIGKILL')
+
+    if (await this.waitForExit(entry, 2000)) return
+
+    // Phase 4: Nuclear — kill any process still holding the port
+    if (entry.config.port) {
+      await this.killByPort(entry.config.port)
+    }
+
+    // Mark as exited regardless — we've done everything we can
+    entry.exited = true
+  }
+
+  private waitForExit(entry: ProcessEntry, timeoutMs: number): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+      if (entry.exited) {
+        resolve(true)
+        return
+      }
+
       const timeout = setTimeout(() => {
-        if (entry.proc.exitCode === null) {
-          entry.proc.kill('SIGKILL')
-        }
-        resolve()
-      }, 5000)
+        cleanup()
+        resolve(false)
+      }, timeoutMs)
 
-      entry.proc.on('exit', () => {
+      const onExit = () => {
+        cleanup()
+        resolve(true)
+      }
+
+      const cleanup = () => {
         clearTimeout(timeout)
-        resolve()
-      })
+        entry.proc.removeListener('exit', onExit)
+      }
+
+      entry.proc.once('exit', onExit)
     })
+  }
+
+  private async killTree(pid: number, signal: NodeJS.Signals): Promise<void> {
+    // Collect entire descendant tree before killing anything
+    const descendants = await this.getDescendants(pid)
+
+    // Kill deepest children first, then work up to root
+    for (const childPid of descendants.reverse()) {
+      try { process.kill(childPid, signal) } catch { /* already dead */ }
+    }
+
+    // Kill root last
+    try { process.kill(pid, signal) } catch { /* already dead */ }
+  }
+
+  private async getDescendants(pid: number): Promise<number[]> {
+    const result: number[] = []
+    try {
+      const { stdout } = await execFileAsync('pgrep', ['-P', String(pid)])
+      const childPids = stdout.trim().split('\n').filter(Boolean).map(Number)
+      for (const childPid of childPids) {
+        result.push(childPid)
+        const grandchildren = await this.getDescendants(childPid)
+        result.push(...grandchildren)
+      }
+    } catch {
+      // No children or pgrep failed
+    }
+    return result
+  }
+
+  private async killByPort(port: number): Promise<void> {
+    try {
+      const { stdout } = await execFileAsync('lsof', ['-i', `:${port}`, '-t'])
+      const pids = stdout.trim().split('\n').filter(Boolean).map(Number)
+      for (const pid of pids) {
+        try { process.kill(pid, 'SIGKILL') } catch { /* already dead */ }
+      }
+    } catch {
+      // Nothing on this port
+    }
   }
 
   async restart(id: string): Promise<ProcessInfo> {
@@ -129,9 +221,7 @@ export class ProcessManager {
   }
 
   list(): ProcessInfo[] {
-    return Array.from(this.processes.entries()).map(([, entry]) =>
-      this.toInfo(entry.config, entry.proc)
-    )
+    return Array.from(this.processes.values()).map(entry => this.toInfo(entry))
   }
 
   async stopAll(): Promise<void> {
@@ -139,19 +229,19 @@ export class ProcessManager {
     await Promise.allSettled(stops)
   }
 
-  private toInfo(config: ProcessConfig, proc: ChildProcess): ProcessInfo {
+  private toInfo(entry: ProcessEntry): ProcessInfo {
     let status: ProcessInfo['status'] = 'running'
-    if (proc.exitCode !== null) status = 'stopped'
-    else if (!proc.pid) status = 'starting'
+    if (entry.exited) status = 'stopped'
+    else if (!entry.proc.pid) status = 'starting'
 
     return {
-      id: config.id,
-      name: config.name,
-      type: config.type,
+      id: entry.config.id,
+      name: entry.config.name,
+      type: entry.config.type,
       status,
-      pid: proc.pid,
-      port: config.port,
-      startedAt: new Date().toISOString()
+      pid: entry.proc.pid,
+      port: entry.config.port,
+      startedAt: entry.startedAt
     }
   }
 

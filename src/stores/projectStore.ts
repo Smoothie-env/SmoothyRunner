@@ -11,6 +11,7 @@ interface ProjectState {
   appsettingsDirty: boolean
   csprojContent: string | null
   csprojLoading: boolean
+  csprojDirty: boolean
   expandedProjects: Set<string>
 
   setFolderProjects: (projects: FolderProject[]) => void
@@ -25,6 +26,7 @@ interface ProjectState {
   setAppsettingsDirty: (dirty: boolean) => void
   setCsprojContent: (content: string | null) => void
   setCsprojLoading: (loading: boolean) => void
+  setCsprojDirty: (dirty: boolean) => void
   toggleExpanded: (projectId: string) => void
 
   activeProject: () => FolderProject | undefined
@@ -41,6 +43,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   appsettingsDirty: false,
   csprojContent: null,
   csprojLoading: false,
+  csprojDirty: false,
   expandedProjects: new Set<string>(),
 
   setFolderProjects: (folderProjects) => set({ folderProjects }),
@@ -66,7 +69,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     appsettingsData: null,
     activeAppsettingsFile: null,
     appsettingsDirty: false,
-    csprojContent: null
+    csprojContent: null,
+    csprojDirty: false
   }),
   setActiveTab: (tab) => set({ activeTab: tab }),
   setScanning: (scanning) => set({ scanning }),
@@ -75,6 +79,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   setAppsettingsDirty: (dirty) => set({ appsettingsDirty: dirty }),
   setCsprojContent: (content) => set({ csprojContent: content }),
   setCsprojLoading: (loading) => set({ csprojLoading: loading }),
+  setCsprojDirty: (dirty) => set({ csprojDirty: dirty }),
   toggleExpanded: (projectId) => set((s) => {
     const next = new Set(s.expandedProjects)
     if (next.has(projectId)) next.delete(projectId)

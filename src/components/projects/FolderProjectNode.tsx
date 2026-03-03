@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useProjectStore } from '@/stores/projectStore'
 import { SubProjectNode } from './SubProjectNode'
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
 import { Select, SelectItem } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import { ChevronRight, Trash2, FolderOpen } from 'lucide-react'
@@ -61,6 +62,13 @@ export function FolderProjectNode({ project }: FolderProjectNodeProps) {
     }
   }
 
+  const grouped = useMemo(() => {
+    const runnable = project.subProjects.filter(sp => sp.kind === 'runnable')
+    const packages = project.subProjects.filter(sp => sp.kind === 'package')
+    const libraries = project.subProjects.filter(sp => sp.kind === 'library')
+    return { runnable, packages, libraries }
+  }, [project.subProjects])
+
   const handleHeaderClick = () => {
     toggleExpanded(project.id)
     setSelection({ type: 'project', projectId: project.id })
@@ -111,12 +119,35 @@ export function FolderProjectNode({ project }: FolderProjectNodeProps) {
         </button>
       </div>
 
-      {/* Sub-projects */}
+      {/* Sub-projects — grouped: runnable → package → libraries (collapsible) */}
       {isExpanded && (
         <div className="ml-3 border-l border-border/40 pl-1">
-          {project.subProjects.map(sp => (
+          {grouped.runnable.map(sp => (
             <SubProjectNode key={sp.id} subProject={sp} projectId={project.id} />
           ))}
+          {grouped.packages.map(sp => (
+            <SubProjectNode key={sp.id} subProject={sp} projectId={project.id} />
+          ))}
+          {grouped.libraries.length > 0 && (
+            <Collapsible>
+              {({ isOpen, toggle }: { isOpen: boolean; toggle: () => void }) => (
+                <>
+                  <CollapsibleTrigger
+                    isOpen={isOpen}
+                    onClick={toggle}
+                    className="px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    Libraries ({grouped.libraries.length})
+                  </CollapsibleTrigger>
+                  <CollapsibleContent isOpen={isOpen}>
+                    {grouped.libraries.map(sp => (
+                      <SubProjectNode key={sp.id} subProject={sp} projectId={project.id} />
+                    ))}
+                  </CollapsibleContent>
+                </>
+              )}
+            </Collapsible>
+          )}
           {project.subProjects.length === 0 && (
             <p className="text-xs text-muted-foreground py-2 pl-4">No .csproj files found</p>
           )}

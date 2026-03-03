@@ -11,6 +11,7 @@ const sparkApi = {
 
   // File system
   readFileContent: (filePath: string) => ipcRenderer.invoke('fs:readFile', filePath),
+  writeFileContent: (filePath: string, content: string) => ipcRenderer.invoke('fs:writeFile', filePath, content),
 
   // Appsettings
   readAppsettings: (filePath: string) => ipcRenderer.invoke('appsettings:read', filePath),

@@ -11,8 +11,9 @@ export interface ScannedSubProject {
   name: string
   csprojPath: string
   dirPath: string
-  kind: 'runnable' | 'library'
+  kind: 'runnable' | 'package' | 'library'
   targetFramework?: string
+  version?: string
   port?: number
   appsettingsFiles: string[]
 }
@@ -82,13 +83,18 @@ export class ProjectScanner {
       const appsettingsFiles = await this.findAppsettingsFiles(dirPath)
       const port = await this.detectPort(dirPath)
 
+      const kind = (info.isWeb || hasProgramCs) ? 'runnable' as const
+        : info.isPackable ? 'package' as const
+        : 'library' as const
+
       subProjects.push({
         id: this.generateId(csprojPath),
         name: csproj.replace('.csproj', ''),
         csprojPath,
         dirPath,
-        kind: (info.isWeb || hasProgramCs) ? 'runnable' : 'library',
+        kind,
         targetFramework: info.targetFramework,
+        version: info.version,
         port,
         appsettingsFiles
       })
@@ -108,22 +114,32 @@ export class ProjectScanner {
     }
   }
 
-  private async parseCsproj(csprojPath: string): Promise<{ isWeb: boolean; targetFramework?: string }> {
+  private async parseCsproj(csprojPath: string): Promise<{ isWeb: boolean; targetFramework?: string; version?: string; isPackable: boolean }> {
     try {
       const content = await fs.readFile(csprojPath, 'utf-8')
       const parsed = this.xmlParser.parse(content)
       const project = parsed.Project
-      if (!project) return { isWeb: false }
+      if (!project) return { isWeb: false, isPackable: false }
 
       const sdk: string = project['@_Sdk'] || ''
       const isWeb = sdk.includes('Microsoft.NET.Sdk.Web')
 
-      const propertyGroup = Array.isArray(project.PropertyGroup) ? project.PropertyGroup[0] : project.PropertyGroup
-      const targetFramework = propertyGroup?.TargetFramework
+      const propertyGroups = Array.isArray(project.PropertyGroup) ? project.PropertyGroup : [project.PropertyGroup]
+      const targetFramework = propertyGroups[0]?.TargetFramework
 
-      return { isWeb, targetFramework }
+      let version: string | undefined
+      let isPackable = false
+      for (const pg of propertyGroups) {
+        if (pg?.Version) version = String(pg.Version)
+        if (pg?.GeneratePackageOnBuild === true || pg?.GeneratePackageOnBuild === 'true') isPackable = true
+        if (pg?.PackageId) isPackable = true
+        if (pg?.PackageIcon || pg?.PackageIconUrl) isPackable = true
+        if (pg?.IsPackable === false || pg?.IsPackable === 'false') isPackable = false
+      }
+
+      return { isWeb, targetFramework, version, isPackable }
     } catch {
-      return { isWeb: false }
+      return { isWeb: false, isPackable: false }
     }
   }
 

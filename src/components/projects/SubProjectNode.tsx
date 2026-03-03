@@ -2,7 +2,7 @@ import { useProjectStore } from '@/stores/projectStore'
 import { useProcessStore } from '@/stores/processStore'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
-import { Play, BookOpen, Circle } from 'lucide-react'
+import { Play, BookOpen, Package, Circle } from 'lucide-react'
 import type { SubProject } from '@/types'
 
 interface SubProjectNodeProps {
@@ -36,6 +36,8 @@ export function SubProjectNode({ subProject, projectId }: SubProjectNodeProps) {
       {/* Kind icon */}
       {subProject.kind === 'runnable' ? (
         <Play className="h-3 w-3 text-green-400 shrink-0" />
+      ) : subProject.kind === 'package' ? (
+        <Package className="h-3 w-3 text-orange-400 shrink-0" />
       ) : (
         <BookOpen className="h-3 w-3 text-blue-400 shrink-0" />
       )}
@@ -56,6 +58,11 @@ export function SubProjectNode({ subProject, projectId }: SubProjectNodeProps) {
         {subProject.port && (
           <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4">
             :{subProject.port}
+          </Badge>
+        )}
+        {subProject.version && (
+          <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4 text-orange-400">
+            v{subProject.version}
           </Badge>
         )}
       </div>

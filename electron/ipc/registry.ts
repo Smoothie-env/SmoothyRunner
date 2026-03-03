@@ -73,6 +73,10 @@ export function registerAllHandlers(mainWindow: BrowserWindow): void {
     return fs.readFile(filePath, 'utf-8')
   })
 
+  ipcMain.handle('fs:writeFile', async (_event, filePath: string, content: string) => {
+    return fs.writeFile(filePath, content, 'utf-8')
+  })
+
   // Appsettings
   ipcMain.handle('appsettings:read', async (_event, filePath: string) => {
     return appsettings.read(filePath)

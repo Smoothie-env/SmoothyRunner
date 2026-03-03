@@ -2,6 +2,65 @@ import fs from 'fs/promises'
 import { BrowserWindow } from 'electron'
 import { watch, type FSWatcher } from 'chokidar'
 
+/**
+ * Strip JS-style comments from JSON content.
+ * .NET appsettings.json files commonly use // and /* comments
+ * which standard JSON.parse() cannot handle.
+ */
+function stripJsonComments(content: string): string {
+  let result = ''
+  let i = 0
+  let inString = false
+  let escape = false
+
+  while (i < content.length) {
+    const ch = content[i]
+    const next = content[i + 1]
+
+    if (inString) {
+      result += ch
+      if (escape) {
+        escape = false
+      } else if (ch === '\\') {
+        escape = true
+      } else if (ch === '"') {
+        inString = false
+      }
+      i++
+      continue
+    }
+
+    // Start of string
+    if (ch === '"') {
+      inString = true
+      result += ch
+      i++
+      continue
+    }
+
+    // Line comment
+    if (ch === '/' && next === '/') {
+      // Skip until end of line
+      i += 2
+      while (i < content.length && content[i] !== '\n') i++
+      continue
+    }
+
+    // Block comment
+    if (ch === '/' && next === '*') {
+      i += 2
+      while (i < content.length && !(content[i] === '*' && content[i + 1] === '/')) i++
+      i += 2 // skip */
+      continue
+    }
+
+    result += ch
+    i++
+  }
+
+  return result
+}
+
 export class AppsettingsManager {
   private watchers = new Map<string, FSWatcher>()
   private mainWindow: BrowserWindow
@@ -12,7 +71,7 @@ export class AppsettingsManager {
 
   async read(filePath: string): Promise<unknown> {
     const content = await fs.readFile(filePath, 'utf-8')
-    return JSON.parse(content)
+    return JSON.parse(stripJsonComments(content))
   }
 
   async write(filePath: string, data: unknown): Promise<void> {

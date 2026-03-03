@@ -1,10 +1,32 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
 import { useProjectStore } from '@/stores/projectStore'
-import { FolderOpen, Loader2, Play, BookOpen } from 'lucide-react'
+import { FolderOpen, Loader2, Play, BookOpen, Package } from 'lucide-react'
 import type { FolderProject } from '@/types'
+
+function SubProjectRow({ sp }: { sp: FolderProject['subProjects'][number] }) {
+  const icon = sp.kind === 'runnable'
+    ? <Play className="h-3 w-3 text-green-400 shrink-0" />
+    : sp.kind === 'package'
+      ? <Package className="h-3 w-3 text-orange-400 shrink-0" />
+      : <BookOpen className="h-3 w-3 text-blue-400 shrink-0" />
+
+  return (
+    <div className="flex items-center gap-2 px-3 py-1.5 text-sm">
+      {icon}
+      <span className="truncate flex-1">{sp.name}</span>
+      <div className="flex gap-1 shrink-0">
+        {sp.targetFramework && <Badge variant="secondary" className="text-[10px]">{sp.targetFramework}</Badge>}
+        {sp.port && <Badge variant="secondary" className="text-[10px]">:{sp.port}</Badge>}
+        {sp.version && <Badge variant="secondary" className="text-[10px] text-orange-400">v{sp.version}</Badge>}
+      </div>
+    </div>
+  )
+}
 
 interface AddProjectDialogProps {
   open: boolean
@@ -46,8 +68,18 @@ export function AddProjectDialog({ open, onOpenChange }: AddProjectDialogProps) 
     setSelectedDir(null)
   }
 
-  const runnableCount = scannedProject?.subProjects.filter(sp => sp.kind === 'runnable').length ?? 0
-  const libraryCount = scannedProject?.subProjects.filter(sp => sp.kind === 'library').length ?? 0
+  const grouped = useMemo(() => {
+    if (!scannedProject) return { runnable: [], packages: [], libraries: [] }
+    return {
+      runnable: scannedProject.subProjects.filter(sp => sp.kind === 'runnable'),
+      packages: scannedProject.subProjects.filter(sp => sp.kind === 'package'),
+      libraries: scannedProject.subProjects.filter(sp => sp.kind === 'library'),
+    }
+  }, [scannedProject])
+
+  const runnableCount = grouped.runnable.length
+  const packageCount = grouped.packages.length
+  const libraryCount = grouped.libraries.length
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -90,6 +122,12 @@ export function AddProjectDialog({ open, onOpenChange }: AddProjectDialogProps) 
                     {runnableCount} runnable
                   </span>
                 )}
+                {packageCount > 0 && (
+                  <span className="flex items-center gap-1">
+                    <Package className="h-3 w-3 text-orange-400" />
+                    {packageCount} {packageCount === 1 ? 'package' : 'packages'}
+                  </span>
+                )}
                 {libraryCount > 0 && (
                   <span className="flex items-center gap-1">
                     <BookOpen className="h-3 w-3 text-blue-400" />
@@ -107,22 +145,36 @@ export function AddProjectDialog({ open, onOpenChange }: AddProjectDialogProps) 
               )}
             </div>
 
-            <div className="space-y-1">
-              {scannedProject.subProjects.map(sp => (
-                <div key={sp.id} className="flex items-center gap-2 px-3 py-1.5 text-sm">
-                  {sp.kind === 'runnable' ? (
-                    <Play className="h-3 w-3 text-green-400 shrink-0" />
-                  ) : (
-                    <BookOpen className="h-3 w-3 text-blue-400 shrink-0" />
-                  )}
-                  <span className="truncate flex-1">{sp.name}</span>
-                  <div className="flex gap-1 shrink-0">
-                    {sp.targetFramework && <Badge variant="secondary" className="text-[10px]">{sp.targetFramework}</Badge>}
-                    {sp.port && <Badge variant="secondary" className="text-[10px]">:{sp.port}</Badge>}
-                  </div>
-                </div>
-              ))}
-            </div>
+            <ScrollArea className="max-h-[300px]">
+              <div className="space-y-1">
+                {grouped.runnable.map(sp => (
+                  <SubProjectRow key={sp.id} sp={sp} />
+                ))}
+                {grouped.packages.map(sp => (
+                  <SubProjectRow key={sp.id} sp={sp} />
+                ))}
+                {grouped.libraries.length > 0 && (
+                  <Collapsible>
+                    {({ isOpen, toggle }: { isOpen: boolean; toggle: () => void }) => (
+                      <>
+                        <CollapsibleTrigger
+                          isOpen={isOpen}
+                          onClick={toggle}
+                          className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
+                        >
+                          {grouped.libraries.length} {grouped.libraries.length === 1 ? 'library' : 'libraries'}
+                        </CollapsibleTrigger>
+                        <CollapsibleContent isOpen={isOpen}>
+                          {grouped.libraries.map(sp => (
+                            <SubProjectRow key={sp.id} sp={sp} />
+                          ))}
+                        </CollapsibleContent>
+                      </>
+                    )}
+                  </Collapsible>
+                )}
+              </div>
+            </ScrollArea>
           </div>
         ) : null}
 
