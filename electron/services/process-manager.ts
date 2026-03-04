@@ -17,6 +17,7 @@ export interface ProcessConfig {
   port?: number
   mode?: LaunchMode
   rootPath?: string
+  portOverride?: number
   // SubProject data needed by handler to build launch command
   subProject?: any
 }
@@ -61,10 +62,11 @@ export class ProcessManager {
     }
 
     // Check port availability
-    if (config.port) {
-      const portInUse = await this.isPortInUse(config.port)
+    const effectivePort = config.portOverride || config.port
+    if (effectivePort) {
+      const portInUse = await this.isPortInUse(effectivePort)
       if (portInUse) {
-        throw new Error(`Port ${config.port} is already in use`)
+        throw new Error(`Port ${effectivePort} is already in use`)
       }
     }
 
@@ -107,7 +109,7 @@ export class ProcessManager {
         shell: cmd.shell
       })
     } else {
-      const cmd = handler.getLaunchCommand(config.subProject, mode, config.rootPath || config.projectPath)
+      const cmd = handler.getLaunchCommand(config.subProject, mode, config.rootPath || config.projectPath, config.portOverride)
       proc = spawn(cmd.command, cmd.args, {
         cwd: cmd.cwd,
         env: cmd.env ? { ...process.env, ...cmd.env } : undefined,
@@ -163,8 +165,9 @@ export class ProcessManager {
     await this.killTree(pid, 'SIGKILL')
     if (await this.waitForExit(entry, 2000)) return
 
-    if (entry.config.port) {
-      await this.killByPort(entry.config.port)
+    const portToKill = entry.config.portOverride || entry.config.port
+    if (portToKill) {
+      await this.killByPort(portToKill)
     }
 
     entry.exited = true
@@ -266,7 +269,7 @@ export class ProcessManager {
       projectType: entry.config.projectType,
       status,
       pid: entry.proc.pid,
-      port: entry.config.port,
+      port: entry.config.portOverride || entry.config.port,
       startedAt: entry.startedAt,
       mode: entry.config.mode
     }

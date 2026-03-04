@@ -32,6 +32,10 @@ export function Select({ value, onValueChange, children, placeholder, className 
     if (!nodes) return
     const arr = Array.isArray(nodes) ? nodes : [nodes]
     for (const child of arr) {
+      if (Array.isArray(child)) {
+        extractItems(child)
+        continue
+      }
       if (child && typeof child === 'object' && 'props' in child) {
         if (child.props.value !== undefined) {
           items.push({ value: child.props.value, label: child.props.children as string })

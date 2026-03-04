@@ -82,7 +82,22 @@ const smoothyApi = {
   gitCheckout: (repoPath: string, branch: string) => ipcRenderer.invoke('git:checkout', repoPath, branch),
   gitIsDirty: (repoPath: string) => ipcRenderer.invoke('git:isDirty', repoPath),
   gitStash: (repoPath: string, message?: string) => ipcRenderer.invoke('git:stash', repoPath, message),
-  gitStashPop: (repoPath: string) => ipcRenderer.invoke('git:stashPop', repoPath)
+  gitStashPop: (repoPath: string) => ipcRenderer.invoke('git:stashPop', repoPath),
+
+  // Task Flows
+  listTaskFlows: () => ipcRenderer.invoke('taskflows:list'),
+  getTaskFlow: (id: string) => ipcRenderer.invoke('taskflows:get', id),
+  addTaskFlow: (flow: unknown) => ipcRenderer.invoke('taskflows:add', flow),
+  updateTaskFlow: (id: string, updates: unknown) => ipcRenderer.invoke('taskflows:update', id, updates),
+  removeTaskFlow: (id: string) => ipcRenderer.invoke('taskflows:remove', id),
+  runTaskFlow: (flowId: string) => ipcRenderer.invoke('taskflows:run', flowId),
+  runTaskFlowStep: (flowId: string, stepId: string) => ipcRenderer.invoke('taskflows:runStep', flowId, stepId),
+  stopTaskFlow: (flowId: string) => ipcRenderer.invoke('taskflows:stop', flowId),
+  onTaskFlowProgress: (callback: (data: { flowId: string; stepId: string; status: string; error?: string }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: { flowId: string; stepId: string; status: string; error?: string }) => callback(data)
+    ipcRenderer.on('taskflow:stepProgress', listener)
+    return () => ipcRenderer.removeListener('taskflow:stepProgress', listener)
+  }
 }
 
 contextBridge.exposeInMainWorld('smoothyApi', smoothyApi)

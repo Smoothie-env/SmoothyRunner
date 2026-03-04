@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useProjectStore } from '@/stores/projectStore'
 import { Button } from '@/components/ui/button'
 import { ProfileEditor } from './ProfileEditor'
-import { ChevronDown, Check, Plus, Trash2, RotateCcw } from 'lucide-react'
+import { ChevronDown, Check, Plus, Trash2, RotateCcw, Pin } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export function ProfileSelector() {
@@ -61,6 +61,15 @@ export function ProfileSelector() {
     setOpen(false)
   }
 
+  const handleSetAsOriginal = async () => {
+    if (!project || !activeFile || !projectType) return
+    const fresh = await window.smoothyApi.resetBaseline(project.id, activeFile, projectType)
+    setConfigData(fresh)
+    setConfigDirty(false)
+    setActiveProfile(null)
+    setOpen(false)
+  }
+
   const handleProfileSaved = () => {
     loadProfiles()
     setEditorOpen(false)
@@ -115,6 +124,13 @@ export function ProfileSelector() {
                   >
                     <RotateCcw className="h-3.5 w-3.5" />
                     Reset to Original
+                  </button>
+                  <button
+                    className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent text-muted-foreground"
+                    onClick={handleSetAsOriginal}
+                  >
+                    <Pin className="h-3.5 w-3.5" />
+                    Set as Original
                   </button>
                 </div>
               </>

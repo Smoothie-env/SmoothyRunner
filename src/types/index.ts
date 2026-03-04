@@ -92,6 +92,53 @@ export interface Profile {
   overlay: Record<string, unknown>
 }
 
+// Task Flow types
+export type TaskFlowStepType = 'process'
+export type BranchStrategy = 'checkout' | 'worktree'
+
+export interface TaskFlowProfileRef {
+  filePath: string
+  profileName: string
+}
+
+export interface TaskFlowStep {
+  id: string
+  type: TaskFlowStepType
+  projectId: string
+  subProjectId: string
+  branch: string | null
+  mode: LaunchMode
+  profiles: TaskFlowProfileRef[]
+  branchStrategy: BranchStrategy
+  portOverride?: number | null
+  order: number
+}
+
+export interface TaskFlow {
+  id: string
+  name: string
+  steps: TaskFlowStep[]
+  createdAt: string
+  updatedAt: string
+}
+
+// Runtime only (not persisted)
+export type TaskFlowStepStatus = 'pending' | 'checkout' | 'applying-profile' | 'starting' | 'running' | 'error' | 'skipped'
+
+export interface TaskFlowStepProgress {
+  stepId: string
+  status: TaskFlowStepStatus
+  error?: string
+}
+
+export interface StepBranchStatus {
+  currentBranch: string | null
+  loading: boolean
+  mismatch: boolean
+}
+
+export type SidebarView = 'projects' | 'taskflows'
+
 declare global {
   interface Window {
     smoothyApi: {
@@ -156,11 +203,22 @@ declare global {
       gitStash: (repoPath: string, message?: string) => Promise<void>
       gitStashPop: (repoPath: string) => Promise<void>
 
+      // Task Flows
+      listTaskFlows: () => Promise<TaskFlow[]>
+      getTaskFlow: (id: string) => Promise<TaskFlow | null>
+      addTaskFlow: (flow: TaskFlow) => Promise<void>
+      updateTaskFlow: (id: string, updates: Partial<TaskFlow>) => Promise<void>
+      removeTaskFlow: (id: string) => Promise<void>
+      runTaskFlow: (flowId: string) => Promise<void>
+      runTaskFlowStep: (flowId: string, stepId: string) => Promise<void>
+      stopTaskFlow: (flowId: string) => Promise<void>
+
       // Events
       onProcessLog: (callback: (data: { id: string; data: string }) => void) => () => void
       onConfigChanged: (callback: (data: { filePath: string }) => void) => () => void
       onDockerStatus: (callback: (data: unknown) => void) => () => void
       onBranchChanged: (callback: (data: { repoPath: string; branch: string }) => void) => () => void
+      onTaskFlowProgress: (callback: (data: { flowId: string; stepId: string; status: TaskFlowStepStatus; error?: string }) => void) => () => void
     }
   }
 }

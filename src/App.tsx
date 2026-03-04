@@ -7,6 +7,8 @@ import { useProjects } from '@/hooks/useProjects'
 import { useProcessPolling } from '@/hooks/useProcess'
 import { useGitWatcher } from '@/hooks/useGitWatcher'
 import { useProcessLogCollector } from '@/hooks/useProcessLogCollector'
+import { useTaskFlows } from '@/hooks/useTaskFlows'
+import { useTaskFlowProgress } from '@/hooks/useTaskFlowProgress'
 import { useProcessStore } from '@/stores/processStore'
 
 const SIDEBAR_MIN = 200
@@ -20,6 +22,8 @@ export default function App() {
   useProcessPolling()
   useGitWatcher()
   useProcessLogCollector()
+  useTaskFlows()
+  useTaskFlowProgress()
 
   const bottomPanelOpen = useProcessStore(s => s.bottomPanelOpen)
   const bottomPanelHeight = useProcessStore(s => s.bottomPanelHeight)

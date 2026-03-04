@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { SubProject, ProcessInfo, LaunchMode, FolderProject } from '@/types'
 import { useProcessStore } from '@/stores/processStore'
+import { buildProcessConfig } from '@/lib/process-config'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Play, Square, RotateCcw, Circle, AlertCircle, Terminal, Eye, Rocket, Container, Skull } from 'lucide-react'
@@ -10,12 +11,6 @@ interface ServiceControlsProps {
   subProject: SubProject
   processInfo?: ProcessInfo
   project?: FolderProject
-}
-
-const MODE_LABELS: Record<LaunchMode, string> = {
-  watch: 'Watch',
-  release: 'Release',
-  devcontainer: 'Container'
 }
 
 function getModeCommand(mode: LaunchMode, subProject: SubProject): string {
@@ -30,22 +25,6 @@ function getModeCommand(mode: LaunchMode, subProject: SubProject): string {
     case 'watch': return 'dotnet watch run'
     case 'release': return 'dotnet run -c Release'
     case 'devcontainer': return 'devcontainer exec ... dotnet run'
-  }
-}
-
-function buildProcessConfig(subProject: SubProject, mode: LaunchMode, project?: FolderProject) {
-  return {
-    id: subProject.id,
-    name: subProject.name,
-    projectType: subProject.projectType,
-    projectPath: subProject.dirPath,
-    projectFilePath: subProject.projectType === 'dotnet' ? subProject.csprojPath
-      : subProject.projectType === 'angular' ? subProject.angularJsonPath
-      : undefined,
-    port: subProject.port,
-    mode,
-    rootPath: project?.rootPath,
-    subProject
   }
 }
 
