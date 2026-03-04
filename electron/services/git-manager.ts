@@ -88,6 +88,12 @@ export class GitManager {
     return stdout.trim().length > 0
   }
 
+  async dirtyCount(repoPath: string): Promise<number> {
+    const { stdout } = await execFileAsync('git', ['status', '--porcelain'], { cwd: repoPath })
+    const lines = stdout.trim().split('\n').filter(Boolean)
+    return lines.length
+  }
+
   async stash(repoPath: string, message?: string): Promise<void> {
     const args = ['stash', 'push', '--include-untracked']
     if (message) args.push('-m', message)

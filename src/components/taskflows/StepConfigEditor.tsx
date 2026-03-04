@@ -4,11 +4,13 @@ import { Select, SelectItem } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { SettingsNode } from '@/components/appsettings/SettingsNode'
-import type { SubProject } from '@/types'
+import type { SubProject, TaskFlowProfileRef } from '@/types'
 
 interface StepConfigEditorProps {
   projectId: string
   subProject: SubProject
+  selectedProfiles?: TaskFlowProfileRef[]
+  refreshKey?: number
   onProfileSaved?: () => void
 }
 
@@ -24,7 +26,7 @@ function setNestedValue(obj: Record<string, unknown>, path: string[], value: unk
   return result
 }
 
-export function StepConfigEditor({ projectId, subProject, onProfileSaved }: StepConfigEditorProps) {
+export function StepConfigEditor({ projectId, subProject, selectedProfiles, refreshKey, onProfileSaved }: StepConfigEditorProps) {
   const [selectedFile, setSelectedFile] = useState(subProject.configFiles[0] || '')
   const [configData, setConfigData] = useState<Record<string, unknown> | null>(null)
   const [loading, setLoading] = useState(false)
@@ -38,6 +40,17 @@ export function StepConfigEditor({ projectId, subProject, onProfileSaved }: Step
     const loadConfig = async () => {
       setLoading(true)
       try {
+        const activeProfile = selectedProfiles?.find(p => p.filePath === selectedFile)
+        if (activeProfile) {
+          const result = await window.smoothyApi.applyProfile(
+            projectId, selectedFile, activeProfile.profileName, subProject.projectType
+          )
+          if (result.merged) {
+            setConfigData(result.merged)
+            setDirty(false)
+            return
+          }
+        }
         const data = await window.smoothyApi.readConfig(selectedFile, subProject.projectType)
         setConfigData(data as Record<string, unknown>)
         setDirty(false)
@@ -49,7 +62,7 @@ export function StepConfigEditor({ projectId, subProject, onProfileSaved }: Step
       }
     }
     loadConfig()
-  }, [selectedFile, subProject.projectType])
+  }, [selectedFile, subProject.projectType, selectedProfiles, refreshKey])
 
   const loadProfiles = async () => {
     if (!selectedFile) return

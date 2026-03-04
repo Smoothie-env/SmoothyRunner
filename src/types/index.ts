@@ -202,6 +202,7 @@ declare global {
       gitIsDirty: (repoPath: string) => Promise<boolean>
       gitStash: (repoPath: string, message?: string) => Promise<void>
       gitStashPop: (repoPath: string) => Promise<void>
+      gitDirtyCount: (repoPath: string) => Promise<number>
 
       // Task Flows
       listTaskFlows: () => Promise<TaskFlow[]>
