@@ -83,6 +83,7 @@ const smoothyApi = {
   gitIsDirty: (repoPath: string) => ipcRenderer.invoke('git:isDirty', repoPath),
   gitStash: (repoPath: string, message?: string) => ipcRenderer.invoke('git:stash', repoPath, message),
   gitStashPop: (repoPath: string) => ipcRenderer.invoke('git:stashPop', repoPath),
+  gitDirtyCount: (repoPath: string) => ipcRenderer.invoke('git:dirtyCount', repoPath),
 
   // Task Flows
   listTaskFlows: () => ipcRenderer.invoke('taskflows:list'),

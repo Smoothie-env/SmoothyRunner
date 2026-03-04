@@ -224,6 +224,10 @@ export function registerAllHandlers(mainWindow: BrowserWindow): void {
     return git.isDirty(repoPath)
   })
 
+  ipcMain.handle('git:dirtyCount', async (_event, repoPath: string) => {
+    return git.dirtyCount(repoPath)
+  })
+
   ipcMain.handle('git:stash', async (_event, repoPath: string, message?: string) => {
     return git.stash(repoPath, message)
   })
