@@ -6,24 +6,52 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
 import { Select, SelectItem } from '@/components/ui/select'
 import { useProjectStore } from '@/stores/projectStore'
-import { FolderOpen, Loader2, Play, BookOpen, Package } from 'lucide-react'
-import type { FolderProject } from '@/types'
+import { FolderOpen, Loader2, Play, BookOpen, Package, Globe } from 'lucide-react'
+import type { FolderProject, SubProject } from '@/types'
 
-function SubProjectRow({ sp }: { sp: FolderProject['subProjects'][number] }) {
-  const icon = sp.kind === 'runnable'
-    ? <Play className="h-3 w-3 text-green-400 shrink-0" />
-    : sp.kind === 'package'
-      ? <Package className="h-3 w-3 text-orange-400 shrink-0" />
+function isRunnable(sp: SubProject): boolean {
+  return (sp.projectType === 'dotnet' && sp.kind === 'runnable')
+    || (sp.projectType === 'angular' && sp.kind === 'application')
+}
+
+function isPackage(sp: SubProject): boolean {
+  return sp.projectType === 'dotnet' && sp.kind === 'package'
+}
+
+function isLibrary(sp: SubProject): boolean {
+  return (sp.projectType === 'dotnet' && sp.kind === 'library')
+    || (sp.projectType === 'angular' && sp.kind === 'library')
+}
+
+function SubProjectRow({ sp }: { sp: SubProject }) {
+  let icon
+  if (sp.projectType === 'angular') {
+    icon = sp.kind === 'application'
+      ? <Globe className="h-3 w-3 text-purple-400 shrink-0" />
       : <BookOpen className="h-3 w-3 text-blue-400 shrink-0" />
+  } else {
+    icon = sp.kind === 'runnable'
+      ? <Play className="h-3 w-3 text-green-400 shrink-0" />
+      : sp.kind === 'package'
+        ? <Package className="h-3 w-3 text-orange-400 shrink-0" />
+        : <BookOpen className="h-3 w-3 text-blue-400 shrink-0" />
+  }
 
   return (
     <div className="flex items-center gap-2 px-3 py-1.5 text-sm">
       {icon}
       <span className="truncate flex-1">{sp.name}</span>
       <div className="flex gap-1 shrink-0">
-        {sp.targetFramework && <Badge variant="secondary" className="text-[10px]">{sp.targetFramework}</Badge>}
+        {sp.projectType === 'dotnet' && sp.targetFramework && (
+          <Badge variant="secondary" className="text-[10px]">{sp.targetFramework}</Badge>
+        )}
+        {sp.projectType === 'angular' && sp.angularVersion && (
+          <Badge variant="secondary" className="text-[10px]">ng{sp.angularVersion.split('.')[0]}</Badge>
+        )}
         {sp.port && <Badge variant="secondary" className="text-[10px]">:{sp.port}</Badge>}
-        {sp.version && <Badge variant="secondary" className="text-[10px] text-orange-400">v{sp.version}</Badge>}
+        {sp.projectType === 'dotnet' && sp.version && (
+          <Badge variant="secondary" className="text-[10px] text-orange-400">v{sp.version}</Badge>
+        )}
       </div>
     </div>
   )
@@ -89,15 +117,15 @@ export function AddProjectDialog({ open, onOpenChange }: AddProjectDialogProps) 
   }
 
   const grouped = useMemo(() => {
-    if (!scannedProject) return { runnable: [], packages: [], libraries: [] }
+    if (!scannedProject) return { services: [], packages: [], libraries: [] }
     return {
-      runnable: scannedProject.subProjects.filter(sp => sp.kind === 'runnable'),
-      packages: scannedProject.subProjects.filter(sp => sp.kind === 'package'),
-      libraries: scannedProject.subProjects.filter(sp => sp.kind === 'library'),
+      services: scannedProject.subProjects.filter(isRunnable),
+      packages: scannedProject.subProjects.filter(isPackage),
+      libraries: scannedProject.subProjects.filter(isLibrary),
     }
   }, [scannedProject])
 
-  const runnableCount = grouped.runnable.length
+  const serviceCount = grouped.services.length
   const packageCount = grouped.packages.length
   const libraryCount = grouped.libraries.length
 
@@ -107,7 +135,7 @@ export function AddProjectDialog({ open, onOpenChange }: AddProjectDialogProps) 
         <DialogHeader>
           <DialogTitle>Add Folder Project</DialogTitle>
           <DialogDescription>
-            Select a folder to add as a project. All .csproj files inside will be discovered.
+            Select a folder to add as a project. .NET and Angular projects will be discovered.
           </DialogDescription>
         </DialogHeader>
 
@@ -123,7 +151,7 @@ export function AddProjectDialog({ open, onOpenChange }: AddProjectDialogProps) 
           </div>
         ) : scannedProject && scannedProject.subProjects.length === 0 ? (
           <div className="text-center py-8">
-            <p className="text-sm text-muted-foreground mb-3">No .csproj files found in this folder</p>
+            <p className="text-sm text-muted-foreground mb-3">No projects found in this folder</p>
             <Button variant="outline" size="sm" onClick={handleSelectFolder}>
               Try Another Folder
             </Button>
@@ -136,10 +164,10 @@ export function AddProjectDialog({ open, onOpenChange }: AddProjectDialogProps) 
                 <span className="font-medium">{scannedProject.name}</span>
               </div>
               <div className="flex gap-3 text-sm text-muted-foreground">
-                {runnableCount > 0 && (
+                {serviceCount > 0 && (
                   <span className="flex items-center gap-1">
                     <Play className="h-3 w-3 text-green-400" />
-                    {runnableCount} runnable
+                    {serviceCount} {serviceCount === 1 ? 'service' : 'services'}
                   </span>
                 )}
                 {packageCount > 0 && (
@@ -167,7 +195,7 @@ export function AddProjectDialog({ open, onOpenChange }: AddProjectDialogProps) 
 
             <ScrollArea className="max-h-[300px]">
               <div className="space-y-1">
-                {grouped.runnable.map(sp => (
+                {grouped.services.map(sp => (
                   <SubProjectRow key={sp.id} sp={sp} />
                 ))}
                 {grouped.packages.map(sp => (

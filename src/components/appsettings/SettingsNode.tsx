@@ -46,6 +46,10 @@ export function SettingsNode({ name, value, path, onChange, defaultOpen = false,
   // Auto-expand when search matches a descendant
   const shouldForceOpen = !!(searchQuery && value !== null && typeof value === 'object' && matchesSearch(name, value, searchQuery))
 
+  // If this node's own name matches the query, show all children unfiltered
+  const nameMatches = !!(searchQuery && name.toLowerCase().includes(searchQuery.toLowerCase()))
+  const childSearchQuery = nameMatches ? '' : searchQuery
+
   // Object
   if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
     const entries = Object.entries(value as Record<string, unknown>)
@@ -74,7 +78,7 @@ export function SettingsNode({ name, value, path, onChange, defaultOpen = false,
                 defaultOpen={key === 'ConnectionStrings'}
                 depth={depth + 1}
                 expandSignal={expandSignal}
-                searchQuery={searchQuery}
+                searchQuery={childSearchQuery}
               />
             ))}
           </div>
@@ -109,7 +113,7 @@ export function SettingsNode({ name, value, path, onChange, defaultOpen = false,
                 onChange={onChange}
                 depth={depth + 1}
                 expandSignal={expandSignal}
-                searchQuery={searchQuery}
+                searchQuery={childSearchQuery}
               />
             ))}
           </div>

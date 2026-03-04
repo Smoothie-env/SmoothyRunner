@@ -1,27 +1,30 @@
 import { spawn, execFile, type ChildProcess } from 'child_process'
-import path from 'path'
 import { promisify } from 'util'
 import { BrowserWindow } from 'electron'
+import { getHandler } from './project-types/registry'
+import type { ProjectType, LaunchMode } from './project-types/project-type-handler'
 
 const execFileAsync = promisify(execFile)
 
-export type LaunchMode = 'watch' | 'release' | 'devcontainer'
+export type { LaunchMode }
 
 export interface ProcessConfig {
   id: string
   name: string
-  type: 'dotnet' | 'angular' | 'docker'
+  projectType: ProjectType
   projectPath: string
-  csprojPath?: string
+  projectFilePath?: string
   port?: number
   mode?: LaunchMode
-  rootPath?: string // needed for devcontainer workspace-folder
+  rootPath?: string
+  // SubProject data needed by handler to build launch command
+  subProject?: any
 }
 
 export interface ProcessInfo {
   id: string
   name: string
-  type: string
+  projectType: string
   status: 'running' | 'stopped' | 'starting' | 'error'
   pid?: number
   port?: number
@@ -65,80 +68,52 @@ export class ProcessManager {
       }
     }
 
-    let proc: ChildProcess
     const mode = config.mode || 'watch'
+    const handler = getHandler(config.projectType)
+    let proc: ChildProcess
 
-    if (config.type === 'dotnet') {
-      if (mode === 'devcontainer') {
-        // DevContainer mode: run via devcontainer CLI
-        const workspaceFolder = config.rootPath || config.projectPath
-        const relativeCsproj = config.csprojPath
-          ? path.relative(workspaceFolder, config.csprojPath)
-          : undefined
+    if (mode === 'devcontainer') {
+      const workspaceFolder = config.rootPath || config.projectPath
 
-        const execArgs = ['exec', '--workspace-folder', workspaceFolder, 'dotnet', 'run']
-        if (relativeCsproj) {
-          execArgs.push('--project', relativeCsproj)
-        }
-
-        // First ensure container is up
-        try {
-          const upProc = spawn('devcontainer', ['up', '--workspace-folder', workspaceFolder], {
-            stdio: ['pipe', 'pipe', 'pipe']
-          })
-          // Forward up logs
-          upProc.stdout?.on('data', (data: Buffer) => {
-            this.mainWindow.webContents.send('process:log', { id: config.id, data: data.toString() })
-          })
-          upProc.stderr?.on('data', (data: Buffer) => {
-            this.mainWindow.webContents.send('process:log', { id: config.id, data: data.toString() })
-          })
-          await new Promise<void>((resolve, reject) => {
-            upProc.on('exit', (code) => {
-              if (code === 0) resolve()
-              else reject(new Error(`devcontainer up failed with code ${code}`))
-            })
-            upProc.on('error', reject)
-          })
-        } catch (err: any) {
-          if (err.message?.includes('ENOENT')) {
-            throw new Error('devcontainer CLI not found. Install it via: npm install -g @devcontainers/cli')
-          }
-          throw err
-        }
-
-        proc = spawn('devcontainer', execArgs, {
+      // First ensure container is up
+      try {
+        const upProc = spawn('devcontainer', ['up', '--workspace-folder', workspaceFolder], {
           stdio: ['pipe', 'pipe', 'pipe']
         })
-      } else if (mode === 'release') {
-        const args = ['run', '-c', 'Release']
-        if (config.csprojPath) {
-          args.push('--project', config.csprojPath)
-        }
-        proc = spawn('dotnet', args, {
-          cwd: config.projectPath,
-          stdio: ['pipe', 'pipe', 'pipe']
+        upProc.stdout?.on('data', (data: Buffer) => {
+          this.mainWindow.webContents.send('process:log', { id: config.id, data: data.toString() })
         })
-      } else {
-        // watch mode (default)
-        const args = ['watch', 'run']
-        if (config.csprojPath) {
-          args.push('--project', config.csprojPath)
-        }
-        proc = spawn('dotnet', args, {
-          cwd: config.projectPath,
-          env: { ...process.env, DOTNET_WATCH_RESTART_ON_RUDE_EDIT: 'true' },
-          stdio: ['pipe', 'pipe', 'pipe']
+        upProc.stderr?.on('data', (data: Buffer) => {
+          this.mainWindow.webContents.send('process:log', { id: config.id, data: data.toString() })
         })
+        await new Promise<void>((resolve, reject) => {
+          upProc.on('exit', (code) => {
+            if (code === 0) resolve()
+            else reject(new Error(`devcontainer up failed with code ${code}`))
+          })
+          upProc.on('error', reject)
+        })
+      } catch (err: any) {
+        if (err.message?.includes('ENOENT')) {
+          throw new Error('devcontainer CLI not found. Install it via: npm install -g @devcontainers/cli')
+        }
+        throw err
       }
-    } else if (config.type === 'angular') {
-      proc = spawn('npx', ['ng', 'serve'], {
-        cwd: config.projectPath,
+
+      const cmd = handler.getDevcontainerCommand(config.subProject, config.rootPath || config.projectPath)
+      proc = spawn(cmd.command, cmd.args, {
+        cwd: cmd.cwd,
         stdio: ['pipe', 'pipe', 'pipe'],
-        shell: true
+        shell: cmd.shell
       })
     } else {
-      throw new Error(`Unsupported process type: ${config.type}`)
+      const cmd = handler.getLaunchCommand(config.subProject, mode, config.rootPath || config.projectPath)
+      proc = spawn(cmd.command, cmd.args, {
+        cwd: cmd.cwd,
+        env: cmd.env ? { ...process.env, ...cmd.env } : undefined,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        shell: cmd.shell
+      })
     }
 
     const logs: string[] = []
@@ -179,28 +154,19 @@ export class ProcessManager {
     const pid = entry.proc.pid
     if (!pid) return
 
-    // Phase 1: Graceful — SIGINT to entire tree (how Ctrl+C works)
-    // dotnet watch responds to SIGINT properly, SIGTERM sometimes leaves it in "waiting" state
     await this.killTree(pid, 'SIGINT')
-
     if (await this.waitForExit(entry, 3000)) return
 
-    // Phase 2: SIGTERM entire tree
     await this.killTree(pid, 'SIGTERM')
-
     if (await this.waitForExit(entry, 3000)) return
 
-    // Phase 3: SIGKILL — force kill everything
     await this.killTree(pid, 'SIGKILL')
-
     if (await this.waitForExit(entry, 2000)) return
 
-    // Phase 4: Nuclear — kill any process still holding the port
     if (entry.config.port) {
       await this.killByPort(entry.config.port)
     }
 
-    // Mark as exited regardless — we've done everything we can
     entry.exited = true
   }
 
@@ -231,15 +197,10 @@ export class ProcessManager {
   }
 
   private async killTree(pid: number, signal: NodeJS.Signals): Promise<void> {
-    // Collect entire descendant tree before killing anything
     const descendants = await this.getDescendants(pid)
-
-    // Kill deepest children first, then work up to root
     for (const childPid of descendants.reverse()) {
       try { process.kill(childPid, signal) } catch { /* already dead */ }
     }
-
-    // Kill root last
     try { process.kill(pid, signal) } catch { /* already dead */ }
   }
 
@@ -297,7 +258,7 @@ export class ProcessManager {
     return {
       id: entry.config.id,
       name: entry.config.name,
-      type: entry.config.type,
+      projectType: entry.config.projectType,
       status,
       pid: entry.proc.pid,
       port: entry.config.port,

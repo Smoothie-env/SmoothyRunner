@@ -7,13 +7,13 @@ interface ProjectState {
   selection: SidebarSelection
   activeTab: ViewTab
   scanning: boolean
-  appsettingsData: Record<string, unknown> | null
-  activeAppsettingsFile: string | null
-  appsettingsDirty: boolean
+  configData: Record<string, unknown> | null
+  activeConfigFile: string | null
+  configDirty: boolean
   activeProfile: string | null
-  csprojContent: string | null
-  csprojLoading: boolean
-  csprojDirty: boolean
+  projectFileContent: string | null
+  projectFileLoading: boolean
+  projectFileDirty: boolean
   expandedProjects: Set<string>
 
   setFolderProjects: (projects: FolderProject[]) => void
@@ -27,13 +27,13 @@ interface ProjectState {
   setSelection: (selection: SidebarSelection) => void
   setActiveTab: (tab: ViewTab) => void
   setScanning: (scanning: boolean) => void
-  setAppsettingsData: (data: Record<string, unknown> | null) => void
-  setActiveAppsettingsFile: (file: string | null) => void
-  setAppsettingsDirty: (dirty: boolean) => void
+  setConfigData: (data: Record<string, unknown> | null) => void
+  setActiveConfigFile: (file: string | null) => void
+  setConfigDirty: (dirty: boolean) => void
   setActiveProfile: (name: string | null) => void
-  setCsprojContent: (content: string | null) => void
-  setCsprojLoading: (loading: boolean) => void
-  setCsprojDirty: (dirty: boolean) => void
+  setProjectFileContent: (content: string | null) => void
+  setProjectFileLoading: (loading: boolean) => void
+  setProjectFileDirty: (dirty: boolean) => void
   toggleExpanded: (projectId: string) => void
 
   activeProject: () => FolderProject | undefined
@@ -44,15 +44,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   folderProjects: [],
   groups: [],
   selection: null,
-  activeTab: 'csproj',
+  activeTab: 'projectFile',
   scanning: false,
-  appsettingsData: null,
-  activeAppsettingsFile: null,
-  appsettingsDirty: false,
+  configData: null,
+  activeConfigFile: null,
+  configDirty: false,
   activeProfile: null,
-  csprojContent: null,
-  csprojLoading: false,
-  csprojDirty: false,
+  projectFileContent: null,
+  projectFileLoading: false,
+  projectFileDirty: false,
   expandedProjects: new Set<string>(),
 
   setFolderProjects: (folderProjects) => set({ folderProjects }),
@@ -84,22 +84,22 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   })),
   setSelection: (selection) => set({
     selection,
-    appsettingsData: null,
-    activeAppsettingsFile: null,
-    appsettingsDirty: false,
+    configData: null,
+    activeConfigFile: null,
+    configDirty: false,
     activeProfile: null,
-    csprojContent: null,
-    csprojDirty: false
+    projectFileContent: null,
+    projectFileDirty: false
   }),
   setActiveTab: (tab) => set({ activeTab: tab }),
   setScanning: (scanning) => set({ scanning }),
-  setAppsettingsData: (data) => set({ appsettingsData: data }),
-  setActiveAppsettingsFile: (file) => set({ activeAppsettingsFile: file, activeProfile: null }),
-  setAppsettingsDirty: (dirty) => set({ appsettingsDirty: dirty }),
+  setConfigData: (data) => set({ configData: data }),
+  setActiveConfigFile: (file) => set({ activeConfigFile: file, activeProfile: null }),
+  setConfigDirty: (dirty) => set({ configDirty: dirty }),
   setActiveProfile: (name) => set({ activeProfile: name }),
-  setCsprojContent: (content) => set({ csprojContent: content }),
-  setCsprojLoading: (loading) => set({ csprojLoading: loading }),
-  setCsprojDirty: (dirty) => set({ csprojDirty: dirty }),
+  setProjectFileContent: (content) => set({ projectFileContent: content }),
+  setProjectFileLoading: (loading) => set({ projectFileLoading: loading }),
+  setProjectFileDirty: (dirty) => set({ projectFileDirty: dirty }),
   toggleExpanded: (projectId) => set((s) => {
     const next = new Set(s.expandedProjects)
     if (next.has(projectId)) next.delete(projectId)

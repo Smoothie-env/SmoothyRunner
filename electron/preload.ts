@@ -20,19 +20,19 @@ const smoothyApi = {
   readFileContent: (filePath: string) => ipcRenderer.invoke('fs:readFile', filePath),
   writeFileContent: (filePath: string, content: string) => ipcRenderer.invoke('fs:writeFile', filePath, content),
 
-  // Appsettings
-  readAppsettings: (filePath: string) => ipcRenderer.invoke('appsettings:read', filePath),
-  writeAppsettings: (filePath: string, data: unknown) => ipcRenderer.invoke('appsettings:write', filePath, data),
-  watchAppsettings: (filePath: string) => ipcRenderer.invoke('appsettings:watch', filePath),
-  unwatchAppsettings: (filePath: string) => ipcRenderer.invoke('appsettings:unwatch', filePath),
+  // Config files (was appsettings)
+  readConfig: (filePath: string, projectType: string) => ipcRenderer.invoke('config:read', filePath, projectType),
+  writeConfig: (filePath: string, data: unknown, projectType: string) => ipcRenderer.invoke('config:write', filePath, data, projectType),
+  watchConfig: (filePath: string) => ipcRenderer.invoke('config:watch', filePath),
+  unwatchConfig: (filePath: string) => ipcRenderer.invoke('config:unwatch', filePath),
 
   // Profiles
   listProfiles: (projectId: string, filePath: string) => ipcRenderer.invoke('profiles:list', projectId, filePath),
-  saveProfile: (projectId: string, filePath: string, name: string, currentData: Record<string, unknown>) => ipcRenderer.invoke('profiles:save', projectId, filePath, name, currentData),
-  applyProfile: (projectId: string, filePath: string, name: string) => ipcRenderer.invoke('profiles:apply', projectId, filePath, name),
+  saveProfile: (projectId: string, filePath: string, name: string, currentData: Record<string, unknown>, projectType: string) => ipcRenderer.invoke('profiles:save', projectId, filePath, name, currentData, projectType),
+  applyProfile: (projectId: string, filePath: string, name: string, projectType: string) => ipcRenderer.invoke('profiles:apply', projectId, filePath, name, projectType),
   deleteProfile: (projectId: string, filePath: string, name: string) => ipcRenderer.invoke('profiles:delete', projectId, filePath, name),
   getBaseline: (projectId: string, filePath: string) => ipcRenderer.invoke('profiles:get-baseline', projectId, filePath),
-  resetBaseline: (projectId: string, filePath: string) => ipcRenderer.invoke('profiles:reset-baseline', projectId, filePath),
+  resetBaseline: (projectId: string, filePath: string, projectType: string) => ipcRenderer.invoke('profiles:reset-baseline', projectId, filePath, projectType),
 
   // Process
   startProcess: (config: unknown) => ipcRenderer.invoke('process:start', config),
@@ -61,10 +61,10 @@ const smoothyApi = {
     ipcRenderer.on('process:log', listener)
     return () => ipcRenderer.removeListener('process:log', listener)
   },
-  onAppsettingsChanged: (callback: (data: { filePath: string }) => void) => {
+  onConfigChanged: (callback: (data: { filePath: string }) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, data: { filePath: string }) => callback(data)
-    ipcRenderer.on('appsettings:changed', listener)
-    return () => ipcRenderer.removeListener('appsettings:changed', listener)
+    ipcRenderer.on('config:changed', listener)
+    return () => ipcRenderer.removeListener('config:changed', listener)
   },
   onDockerStatus: (callback: (data: unknown) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, data: unknown) => callback(data)

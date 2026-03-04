@@ -79,6 +79,25 @@ export class GitManager {
     }
   }
 
+  async checkout(repoPath: string, branch: string): Promise<void> {
+    await execFileAsync('git', ['checkout', branch], { cwd: repoPath })
+  }
+
+  async isDirty(repoPath: string): Promise<boolean> {
+    const { stdout } = await execFileAsync('git', ['status', '--porcelain'], { cwd: repoPath })
+    return stdout.trim().length > 0
+  }
+
+  async stash(repoPath: string, message?: string): Promise<void> {
+    const args = ['stash', 'push', '--include-untracked']
+    if (message) args.push('-m', message)
+    await execFileAsync('git', args, { cwd: repoPath })
+  }
+
+  async stashPop(repoPath: string): Promise<void> {
+    await execFileAsync('git', ['stash', 'pop'], { cwd: repoPath })
+  }
+
   async worktreeRemove(worktreePath: string): Promise<void> {
     // Find the main repo from the worktree
     const { stdout } = await execFileAsync('git', ['rev-parse', '--git-common-dir'], { cwd: worktreePath })

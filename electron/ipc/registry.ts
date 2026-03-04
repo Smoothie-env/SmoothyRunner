@@ -3,18 +3,19 @@ import fs from 'fs/promises'
 import { ProjectScanner } from '../services/project-scanner'
 import { ConfigManager } from '../services/config-manager'
 import type { FolderProjectConfig } from '../services/config-manager'
-import { AppsettingsManager } from '../services/appsettings-manager'
+import { ConfigFileManager } from '../services/config-file-manager'
 import { ProfileManager } from '../services/profile-manager'
 import { ProcessManager } from '../services/process-manager'
 import { DockerManager } from '../services/docker-manager'
 import { GitManager } from '../services/git-manager'
 import { GitWatcher } from '../services/git-watcher'
+import type { ProjectType } from '../services/project-types/project-type-handler'
 
 export function registerAllHandlers(mainWindow: BrowserWindow): void {
   const scanner = new ProjectScanner()
   const config = new ConfigManager()
-  const appsettings = new AppsettingsManager(mainWindow)
-  const profiles = new ProfileManager(config, appsettings)
+  const configFileManager = new ConfigFileManager(mainWindow)
+  const profiles = new ProfileManager(config, configFileManager)
   const processes = new ProcessManager(mainWindow)
   const docker = new DockerManager()
   const git = new GitManager()
@@ -35,11 +36,9 @@ export function registerAllHandlers(mainWindow: BrowserWindow): void {
 
   ipcMain.handle('projects:listFolderProjects', async () => {
     const configs = await config.listFolderProjects()
-    // Rescan subProjects for each folder
     const results = await Promise.all(configs.map(async (cfg) => {
       const subProjects = await scanner.rescanSubProjects(cfg.rootPath)
       const branch = await git.currentBranch(cfg.rootPath).catch(() => undefined)
-      // Auto-watch git HEAD for branch changes
       gitWatcher.watchProject(cfg.rootPath)
       return {
         ...cfg,
@@ -105,21 +104,21 @@ export function registerAllHandlers(mainWindow: BrowserWindow): void {
     return fs.writeFile(filePath, content, 'utf-8')
   })
 
-  // Appsettings
-  ipcMain.handle('appsettings:read', async (_event, filePath: string) => {
-    return appsettings.read(filePath)
+  // Config files (was appsettings)
+  ipcMain.handle('config:read', async (_event, filePath: string, projectType: ProjectType) => {
+    return configFileManager.read(filePath, projectType)
   })
 
-  ipcMain.handle('appsettings:write', async (_event, filePath: string, data: unknown) => {
-    return appsettings.write(filePath, data)
+  ipcMain.handle('config:write', async (_event, filePath: string, data: unknown, projectType: ProjectType) => {
+    return configFileManager.write(filePath, data, projectType)
   })
 
-  ipcMain.handle('appsettings:watch', async (_event, filePath: string) => {
-    return appsettings.watch(filePath)
+  ipcMain.handle('config:watch', async (_event, filePath: string) => {
+    return configFileManager.watch(filePath)
   })
 
-  ipcMain.handle('appsettings:unwatch', async (_event, filePath: string) => {
-    return appsettings.unwatch(filePath)
+  ipcMain.handle('config:unwatch', async (_event, filePath: string) => {
+    return configFileManager.unwatch(filePath)
   })
 
   // Profiles
@@ -127,12 +126,12 @@ export function registerAllHandlers(mainWindow: BrowserWindow): void {
     return profiles.listProfiles(projectId, filePath)
   })
 
-  ipcMain.handle('profiles:save', async (_event, projectId: string, filePath: string, name: string, currentData: Record<string, unknown>) => {
-    return profiles.saveProfile(projectId, filePath, name, currentData)
+  ipcMain.handle('profiles:save', async (_event, projectId: string, filePath: string, name: string, currentData: Record<string, unknown>, projectType: ProjectType) => {
+    return profiles.saveProfile(projectId, filePath, name, currentData, projectType)
   })
 
-  ipcMain.handle('profiles:apply', async (_event, projectId: string, filePath: string, name: string) => {
-    return profiles.applyProfile(projectId, filePath, name)
+  ipcMain.handle('profiles:apply', async (_event, projectId: string, filePath: string, name: string, projectType: ProjectType) => {
+    return profiles.applyProfile(projectId, filePath, name, projectType)
   })
 
   ipcMain.handle('profiles:delete', async (_event, projectId: string, filePath: string, name: string) => {
@@ -143,8 +142,8 @@ export function registerAllHandlers(mainWindow: BrowserWindow): void {
     return profiles.getBaseline(projectId, filePath)
   })
 
-  ipcMain.handle('profiles:reset-baseline', async (_event, projectId: string, filePath: string) => {
-    return profiles.resetBaseline(projectId, filePath)
+  ipcMain.handle('profiles:reset-baseline', async (_event, projectId: string, filePath: string, projectType: ProjectType) => {
+    return profiles.resetBaseline(projectId, filePath, projectType)
   })
 
   // Process
@@ -229,6 +228,7 @@ export function registerAllHandlers(mainWindow: BrowserWindow): void {
   // Graceful shutdown
   const cleanup = () => {
     processes.stopAll()
+    configFileManager.destroy()
     gitWatcher.destroy()
   }
   process.on('SIGTERM', cleanup)

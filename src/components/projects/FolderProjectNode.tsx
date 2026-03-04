@@ -6,10 +6,24 @@ import { Select, SelectItem } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import { ChevronRight, Trash2, FolderOpen } from 'lucide-react'
 import { BranchSelector } from './BranchSelector'
-import type { FolderProject, Worktree } from '@/types'
+import type { FolderProject, SubProject, Worktree } from '@/types'
 
 function worktreeDisplayName(wt: Worktree, projectName: string): string {
   return wt.isMain ? projectName : wt.path.split('/').pop() || wt.branch
+}
+
+function isRunnable(sp: SubProject): boolean {
+  return (sp.projectType === 'dotnet' && sp.kind === 'runnable')
+    || (sp.projectType === 'angular' && sp.kind === 'application')
+}
+
+function isPackage(sp: SubProject): boolean {
+  return sp.projectType === 'dotnet' && sp.kind === 'package'
+}
+
+function isLibrary(sp: SubProject): boolean {
+  return (sp.projectType === 'dotnet' && sp.kind === 'library')
+    || (sp.projectType === 'angular' && sp.kind === 'library')
 }
 
 interface FolderProjectNodeProps {
@@ -79,7 +93,6 @@ export function FolderProjectNode({ project }: FolderProjectNodeProps) {
     const isMain = worktreePath === project.originalRootPath
     await window.smoothyApi.setProjectWorktree(project.id, isMain ? null : worktreePath)
 
-    // Rescan from new path
     try {
       const scanned = await window.smoothyApi.scanFolder(worktreePath)
       updateFolderProject(project.id, {
@@ -94,10 +107,10 @@ export function FolderProjectNode({ project }: FolderProjectNodeProps) {
   }
 
   const grouped = useMemo(() => {
-    const runnable = project.subProjects.filter(sp => sp.kind === 'runnable')
-    const packages = project.subProjects.filter(sp => sp.kind === 'package')
-    const libraries = project.subProjects.filter(sp => sp.kind === 'library')
-    return { runnable, packages, libraries }
+    const services = project.subProjects.filter(isRunnable)
+    const packages = project.subProjects.filter(isPackage)
+    const libraries = project.subProjects.filter(isLibrary)
+    return { services, packages, libraries }
   }, [project.subProjects])
 
   const handleHeaderClick = () => {
@@ -152,10 +165,10 @@ export function FolderProjectNode({ project }: FolderProjectNodeProps) {
         )}
       </div>
 
-      {/* Sub-projects — grouped: runnable → package → libraries (collapsible) */}
+      {/* Sub-projects — grouped: services → packages → libraries (collapsible) */}
       {isExpanded && (
         <div className="ml-3 border-l border-border/40 pl-1">
-          {grouped.runnable.map(sp => (
+          {grouped.services.map(sp => (
             <SubProjectNode key={sp.id} subProject={sp} projectId={project.id} />
           ))}
           {grouped.packages.map(sp => (
@@ -182,7 +195,7 @@ export function FolderProjectNode({ project }: FolderProjectNodeProps) {
             </Collapsible>
           )}
           {project.subProjects.length === 0 && (
-            <p className="text-xs text-muted-foreground py-2 pl-4">No .csproj files found</p>
+            <p className="text-xs text-muted-foreground py-2 pl-4">No projects found</p>
           )}
         </div>
       )}

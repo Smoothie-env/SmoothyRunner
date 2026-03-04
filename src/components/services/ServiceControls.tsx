@@ -18,11 +18,34 @@ const MODE_LABELS: Record<LaunchMode, string> = {
   devcontainer: 'Container'
 }
 
-function getModeCommand(mode: LaunchMode): string {
+function getModeCommand(mode: LaunchMode, subProject: SubProject): string {
+  if (subProject.projectType === 'angular') {
+    switch (mode) {
+      case 'watch': return 'ng serve'
+      case 'release': return 'ng build --production'
+      case 'devcontainer': return 'devcontainer exec ... ng serve'
+    }
+  }
   switch (mode) {
     case 'watch': return 'dotnet watch run'
     case 'release': return 'dotnet run -c Release'
     case 'devcontainer': return 'devcontainer exec ... dotnet run'
+  }
+}
+
+function buildProcessConfig(subProject: SubProject, mode: LaunchMode, project?: FolderProject) {
+  return {
+    id: subProject.id,
+    name: subProject.name,
+    projectType: subProject.projectType,
+    projectPath: subProject.dirPath,
+    projectFilePath: subProject.projectType === 'dotnet' ? subProject.csprojPath
+      : subProject.projectType === 'angular' ? subProject.angularJsonPath
+      : undefined,
+    port: subProject.port,
+    mode,
+    rootPath: project?.rootPath,
+    subProject
   }
 }
 
@@ -47,16 +70,7 @@ export function ServiceControls({ subProject, processInfo, project }: ServiceCon
     setLoading(true)
     setError(null)
     try {
-      await window.smoothyApi.startProcess({
-        id: subProject.id,
-        name: subProject.name,
-        type: 'dotnet',
-        projectPath: subProject.dirPath,
-        csprojPath: subProject.csprojPath,
-        port: subProject.port,
-        mode,
-        rootPath: project?.rootPath
-      })
+      await window.smoothyApi.startProcess(buildProcessConfig(subProject, mode, project))
       await refreshProcesses()
     } catch (err: any) {
       setError(err.message || 'Failed to start')
@@ -115,7 +129,7 @@ export function ServiceControls({ subProject, processInfo, project }: ServiceCon
           disabled={isRunning}
         >
           <Rocket className="h-3 w-3" />
-          Release
+          {subProject.projectType === 'angular' ? 'Build' : 'Release'}
         </button>
         {hasDevContainer && (
           <button
@@ -152,7 +166,7 @@ export function ServiceControls({ subProject, processInfo, project }: ServiceCon
             )}
           </div>
           <p className="text-xs text-muted-foreground mt-0.5">
-            {getModeCommand(mode)} — {subProject.dirPath}
+            {getModeCommand(mode, subProject)} — {subProject.dirPath}
           </p>
         </div>
 
@@ -194,17 +208,7 @@ export function ServiceControls({ subProject, processInfo, project }: ServiceCon
                 try {
                   await window.smoothyApi.killPort(port)
                   setError(null)
-                  // Auto-retry start
-                  await window.smoothyApi.startProcess({
-                    id: subProject.id,
-                    name: subProject.name,
-                    type: 'dotnet',
-                    projectPath: subProject.dirPath,
-                    csprojPath: subProject.csprojPath,
-                    port: subProject.port,
-                    mode,
-                    rootPath: project?.rootPath
-                  })
+                  await window.smoothyApi.startProcess(buildProcessConfig(subProject, mode, project))
                   await refreshProcesses()
                 } catch (err: any) {
                   setError(err.message || 'Failed after killing port')

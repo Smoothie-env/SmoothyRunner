@@ -18,12 +18,12 @@ import { bracketMatching, foldGutter, foldKeymap, syntaxHighlighting, defaultHig
 
 export function SettingsTree() {
   const subProject = useProjectStore(s => s.activeSubProject())
-  const appsettingsData = useProjectStore(s => s.appsettingsData)
-  const activeFile = useProjectStore(s => s.activeAppsettingsFile)
-  const dirty = useProjectStore(s => s.appsettingsDirty)
-  const setAppsettingsData = useProjectStore(s => s.setAppsettingsData)
-  const setActiveFile = useProjectStore(s => s.setActiveAppsettingsFile)
-  const setDirty = useProjectStore(s => s.setAppsettingsDirty)
+  const configData = useProjectStore(s => s.configData)
+  const activeFile = useProjectStore(s => s.activeConfigFile)
+  const dirty = useProjectStore(s => s.configDirty)
+  const setConfigData = useProjectStore(s => s.setConfigData)
+  const setActiveFile = useProjectStore(s => s.setActiveConfigFile)
+  const setDirty = useProjectStore(s => s.setConfigDirty)
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [externalChange, setExternalChange] = useState(false)
@@ -37,35 +37,38 @@ export function SettingsTree() {
   const sourceContentRef = useRef<string>('')
   const handleSaveRef = useRef<() => Promise<void>>()
 
+  const projectType = subProject?.projectType
+
   const loadSettings = useCallback(async (filePath: string) => {
+    if (!projectType) return
     setLoading(true)
     setLoadError(null)
     try {
-      const data = await window.smoothyApi.readAppsettings(filePath)
-      setAppsettingsData(data as Record<string, unknown>)
+      const data = await window.smoothyApi.readConfig(filePath, projectType)
+      setConfigData(data as Record<string, unknown>)
       snapshotRef.current = structuredClone(data as Record<string, unknown>)
       setDirty(false)
       setExternalChange(false)
-      await window.smoothyApi.watchAppsettings(filePath)
+      await window.smoothyApi.watchConfig(filePath)
     } catch (err: any) {
-      console.error('Failed to read appsettings:', err)
-      setAppsettingsData(null)
+      console.error('Failed to read config:', err)
+      setConfigData(null)
       setLoadError(err.message || 'Failed to read file')
     } finally {
       setLoading(false)
     }
-  }, [setAppsettingsData, setDirty])
+  }, [setConfigData, setDirty, projectType])
 
-  // Auto-select Development file and load on subproject change
+  // Auto-select Development file (for .NET) or first file and load on subproject change
   useEffect(() => {
-    if (!subProject || subProject.appsettingsFiles.length === 0) {
+    if (!subProject || subProject.configFiles.length === 0) {
       setActiveFile(null)
-      setAppsettingsData(null)
+      setConfigData(null)
       return
     }
 
-    const devFile = subProject.appsettingsFiles.find(f => f.includes('Development'))
-      || subProject.appsettingsFiles[0]
+    const devFile = subProject.configFiles.find(f => f.includes('Development'))
+      || subProject.configFiles[0]
 
     if (devFile) {
       setActiveFile(devFile)
@@ -74,14 +77,14 @@ export function SettingsTree() {
 
     return () => {
       if (devFile) {
-        window.smoothyApi.unwatchAppsettings(devFile)
+        window.smoothyApi.unwatchConfig(devFile)
       }
     }
-  }, [subProject?.id, loadSettings, setActiveFile, setAppsettingsData])
+  }, [subProject?.id, loadSettings, setActiveFile, setConfigData])
 
   // Listen for external changes
   useEffect(() => {
-    const unsubscribe = window.smoothyApi.onAppsettingsChanged(({ filePath }) => {
+    const unsubscribe = window.smoothyApi.onConfigChanged(({ filePath }) => {
       if (filePath === activeFile) {
         setExternalChange(true)
       }
@@ -91,7 +94,7 @@ export function SettingsTree() {
 
   const handleFileChange = (filePath: string) => {
     if (activeFile) {
-      window.smoothyApi.unwatchAppsettings(activeFile)
+      window.smoothyApi.unwatchConfig(activeFile)
     }
     setSourceView(false)
     setSourceError(null)
@@ -100,15 +103,15 @@ export function SettingsTree() {
   }
 
   const handleSave = async () => {
-    if (!activeFile) return
+    if (!activeFile || !projectType) return
 
     if (sourceView) {
       if (!viewRef.current) return
       const content = viewRef.current.state.doc.toString()
       try {
         const parsed = JSON.parse(content)
-        await window.smoothyApi.writeAppsettings(activeFile, parsed)
-        setAppsettingsData(parsed)
+        await window.smoothyApi.writeConfig(activeFile, parsed, projectType)
+        setConfigData(parsed)
         sourceContentRef.current = content
         setDirty(false)
         setSourceError(null)
@@ -116,8 +119,8 @@ export function SettingsTree() {
         setSourceError(err.message || 'Invalid JSON')
       }
     } else {
-      if (!appsettingsData) return
-      await window.smoothyApi.writeAppsettings(activeFile, appsettingsData)
+      if (!configData) return
+      await window.smoothyApi.writeConfig(activeFile, configData, projectType)
       setDirty(false)
     }
   }
@@ -145,13 +148,12 @@ export function SettingsTree() {
       })
       sourceContentRef.current = jsonStr
     }
-    setAppsettingsData(structuredClone(snapshotRef.current))
+    setConfigData(structuredClone(snapshotRef.current))
     setDirty(false)
   }
 
   const handleToggleSource = () => {
     if (sourceView) {
-      // Source -> Tree: parse and validate
       if (!viewRef.current) {
         setSourceView(false)
         setSourceError(null)
@@ -160,7 +162,7 @@ export function SettingsTree() {
       const content = viewRef.current.state.doc.toString()
       try {
         const parsed = JSON.parse(content)
-        setAppsettingsData(parsed)
+        setConfigData(parsed)
         setSourceError(null)
         setSourceView(false)
       } catch (err: any) {
@@ -173,15 +175,15 @@ export function SettingsTree() {
   }
 
   const handleValueChange = (path: string[], value: unknown) => {
-    if (!appsettingsData) return
+    if (!configData) return
 
-    const newData = structuredClone(appsettingsData)
+    const newData = structuredClone(configData)
     let current: any = newData
     for (let i = 0; i < path.length - 1; i++) {
       current = current[path[i]]
     }
     current[path[path.length - 1]] = value
-    setAppsettingsData(newData)
+    setConfigData(newData)
     setDirty(true)
   }
 
@@ -189,10 +191,9 @@ export function SettingsTree() {
   useEffect(() => {
     if (!sourceView || !editorRef.current) return
 
-    const jsonStr = JSON.stringify(appsettingsData ?? {}, null, 2)
+    const jsonStr = JSON.stringify(configData ?? {}, null, 2)
     sourceContentRef.current = jsonStr
 
-    // If editor already exists, replace content
     if (viewRef.current) {
       viewRef.current.dispatch({
         changes: {
@@ -266,12 +267,12 @@ export function SettingsTree() {
 
   if (!subProject) return null
 
-  if (subProject.appsettingsFiles.length === 0) {
+  if (subProject.configFiles.length === 0) {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-center">
           <FileJson className="h-10 w-10 text-muted-foreground/20 mx-auto mb-3" />
-          <p className="text-sm text-muted-foreground">No appsettings files found</p>
+          <p className="text-sm text-muted-foreground">No configuration files found</p>
         </div>
       </div>
     )
@@ -286,7 +287,7 @@ export function SettingsTree() {
           onValueChange={handleFileChange}
           className="w-[260px]"
         >
-          {subProject.appsettingsFiles.map(f => {
+          {subProject.configFiles.map(f => {
             const name = f.split('/').pop() || f
             return <SelectItem key={f} value={f}>{name}</SelectItem>
           })}
@@ -394,9 +395,9 @@ export function SettingsTree() {
                 Retry
               </Button>
             </div>
-          ) : appsettingsData ? (
+          ) : configData ? (
             <div className="space-y-1">
-              {Object.entries(appsettingsData).map(([key, value]) => (
+              {Object.entries(configData).map(([key, value]) => (
                 <SettingsNode
                   key={key}
                   name={key}

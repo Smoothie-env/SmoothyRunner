@@ -1,72 +1,54 @@
-import fs from 'fs/promises'
 import { ConfigManager } from './config-manager'
-import { ProjectScanner } from './project-scanner'
+import { ConfigFileManager } from './config-file-manager'
+import type { ProjectType } from './project-types/project-type-handler'
 
 export class ProfileManager {
   private config: ConfigManager
-  private scanner: ProjectScanner
+  private configFileManager: ConfigFileManager
 
-  constructor(config: ConfigManager, scanner?: ProjectScanner) {
+  constructor(config: ConfigManager, configFileManager: ConfigFileManager) {
     this.config = config
-    this.scanner = scanner || new ProjectScanner()
+    this.configFileManager = configFileManager
   }
 
-  async listProfiles(projectId: string): Promise<string[]> {
-    const profiles = await this.config.getProfiles(projectId)
-    return Object.keys(profiles)
+  async listProfiles(projectId: string, filePath: string): Promise<string[]> {
+    return this.config.getProfileNames(projectId, filePath)
   }
 
-  async saveProfile(projectId: string, name: string, overlay: unknown): Promise<void> {
-    await this.config.setProfile(projectId, name, overlay)
+  async saveProfile(projectId: string, filePath: string, name: string, currentData: Record<string, unknown>, projectType: ProjectType): Promise<void> {
+    const baseline = await this.ensureBaseline(projectId, filePath, projectType)
+    const overlay = this.extractDiff(currentData, baseline)
+    await this.config.setProfile(projectId, filePath, name, overlay, baseline)
   }
 
-  async applyProfile(projectId: string, name: string): Promise<{ success: boolean; error?: string }> {
-    const project = await this.config.getFolderProject(projectId)
-    if (!project) return { success: false, error: 'Project not found' }
-
-    const profiles = await this.config.getProfiles(projectId)
-    const overlay = profiles[name]
-    if (!overlay) return { success: false, error: 'Profile not found' }
-
-    // Rescan to find appsettings files
-    const subProjects = await this.scanner.rescanSubProjects(project.rootPath)
-    const allAppsettingsFiles = subProjects.flatMap(sp => sp.appsettingsFiles)
-
-    const devSettings = allAppsettingsFiles.find(f => f.includes('Development'))
-    if (!devSettings) return { success: false, error: 'No Development appsettings found' }
-
-    const baseContent = await fs.readFile(devSettings, 'utf-8')
-    const base = JSON.parse(baseContent)
-
-    const merged = this.deepMerge(base, overlay as Record<string, unknown>)
-
-    await fs.writeFile(devSettings, JSON.stringify(merged, null, 2), 'utf-8')
-
-    return { success: true }
-  }
-
-  async deleteProfile(projectId: string, name: string): Promise<void> {
-    await this.config.deleteProfile(projectId, name)
-  }
-
-  async previewProfile(projectId: string, name: string): Promise<{ merged: unknown; error?: string }> {
-    const project = await this.config.getFolderProject(projectId)
-    if (!project) return { merged: null, error: 'Project not found' }
-
-    const profiles = await this.config.getProfiles(projectId)
-    const overlay = profiles[name]
+  async applyProfile(projectId: string, filePath: string, name: string, projectType: ProjectType): Promise<{ merged: Record<string, unknown> | null; error?: string }> {
+    const baseline = await this.ensureBaseline(projectId, filePath, projectType)
+    const overlay = await this.config.getProfileOverlay(projectId, filePath, name)
     if (!overlay) return { merged: null, error: 'Profile not found' }
+    const merged = this.deepMerge(baseline, overlay)
+    return { merged }
+  }
 
-    const subProjects = await this.scanner.rescanSubProjects(project.rootPath)
-    const allAppsettingsFiles = subProjects.flatMap(sp => sp.appsettingsFiles)
+  async deleteProfile(projectId: string, filePath: string, name: string): Promise<void> {
+    await this.config.deleteProfile(projectId, filePath, name)
+  }
 
-    const devSettings = allAppsettingsFiles.find(f => f.includes('Development'))
-    if (!devSettings) return { merged: null, error: 'No Development appsettings found' }
+  async getBaseline(projectId: string, filePath: string): Promise<Record<string, unknown> | null> {
+    return this.config.getBaseline(projectId, filePath)
+  }
 
-    const baseContent = await fs.readFile(devSettings, 'utf-8')
-    const base = JSON.parse(baseContent)
+  async resetBaseline(projectId: string, filePath: string, projectType: ProjectType): Promise<Record<string, unknown>> {
+    const diskData = await this.configFileManager.read(filePath, projectType) as Record<string, unknown>
+    await this.config.setBaseline(projectId, filePath, diskData)
+    return diskData
+  }
 
-    return { merged: this.deepMerge(base, overlay as Record<string, unknown>) }
+  private async ensureBaseline(projectId: string, filePath: string, projectType: ProjectType): Promise<Record<string, unknown>> {
+    const stored = await this.config.getBaseline(projectId, filePath)
+    if (stored) return stored
+    const diskData = await this.configFileManager.read(filePath, projectType) as Record<string, unknown>
+    await this.config.setBaseline(projectId, filePath, diskData)
+    return diskData
   }
 
   extractDiff(current: Record<string, unknown>, base: Record<string, unknown>): Record<string, unknown> {

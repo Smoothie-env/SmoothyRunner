@@ -4,6 +4,12 @@ import { ServiceControls } from './ServiceControls'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Circle, Globe, Terminal } from 'lucide-react'
+import type { SubProject } from '@/types'
+
+function isRunnableSubProject(sp: SubProject): boolean {
+  return (sp.projectType === 'dotnet' && sp.kind === 'runnable')
+    || (sp.projectType === 'angular' && sp.kind === 'application')
+}
 
 export function ServicePanel() {
   const subProject = useProjectStore(s => s.activeSubProject())
@@ -12,7 +18,7 @@ export function ServicePanel() {
   const setBottomPanelOpen = useProcessStore(s => s.setBottomPanelOpen)
   const setActiveProcessTab = useProcessStore(s => s.setActiveProcessTab)
 
-  if (!subProject || subProject.kind !== 'runnable') return null
+  if (!subProject || !isRunnableSubProject(subProject)) return null
 
   const processInfo = processes.find(p => p.id === subProject.id)
   const isRunning = processInfo?.status === 'running'
@@ -66,12 +72,20 @@ export function ServicePanel() {
               <span className="text-xs">{processInfo.pid}</span>
             </>
           )}
-          {subProject.targetFramework && (
+          {subProject.projectType === 'dotnet' && subProject.targetFramework && (
             <>
               <span className="text-muted-foreground text-xs">Framework</span>
               <span className="text-xs">{subProject.targetFramework}</span>
             </>
           )}
+          {subProject.projectType === 'angular' && subProject.angularVersion && (
+            <>
+              <span className="text-muted-foreground text-xs">Angular</span>
+              <span className="text-xs">{subProject.angularVersion}</span>
+            </>
+          )}
+          <span className="text-muted-foreground text-xs">Type</span>
+          <span className="text-xs capitalize">{subProject.projectType}</span>
           <span className="text-muted-foreground text-xs">Path</span>
           <span className="text-xs truncate" title={subProject.dirPath}>{subProject.dirPath}</span>
         </div>

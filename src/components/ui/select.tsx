@@ -50,25 +50,27 @@ export function Select({ value, onValueChange, children, placeholder, className 
   return (
     <div className={cn('relative', className)} ref={ref}>
       <button
-        className="flex h-8 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm hover:bg-accent"
+        className="flex h-7 w-full items-center justify-between gap-1 rounded-md border border-input bg-transparent px-2 py-1 text-xs shadow-sm hover:bg-accent overflow-hidden"
         onClick={() => setOpen(!open)}
+        title={selectedLabel}
       >
-        <span className={value ? '' : 'text-muted-foreground'}>{selectedLabel}</span>
-        <ChevronDown className="h-3.5 w-3.5 opacity-50" />
+        <span className={cn('truncate min-w-0', !value && 'text-muted-foreground')}>{selectedLabel}</span>
+        <ChevronDown className="h-3 w-3 shrink-0 opacity-50" />
       </button>
       {open && (
-        <div className="absolute left-0 top-full z-50 mt-1 w-full min-w-[160px] rounded-md border bg-popover p-1 shadow-md">
+        <div className="absolute left-0 top-full z-50 mt-1 w-max max-w-[280px] rounded-md border bg-popover p-1 shadow-md">
           {items.map(item => (
             <button
               key={item.value}
               className={cn(
-                'flex w-full items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent cursor-default',
+                'flex w-full items-center rounded-sm px-2 py-1.5 text-xs hover:bg-accent cursor-default truncate',
                 item.value === value && 'bg-accent'
               )}
               onClick={() => {
                 onValueChange(item.value)
                 setOpen(false)
               }}
+              title={item.label}
             >
               {item.label}
             </button>

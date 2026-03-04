@@ -4,17 +4,34 @@ export interface ProjectGroup {
   order: number
 }
 
-export interface SubProject {
+export type ProjectType = 'dotnet' | 'angular'
+
+interface SubProjectBase {
   id: string
   name: string
-  csprojPath: string
+  projectType: ProjectType
   dirPath: string
+  port?: number
+  configFiles: string[]
+}
+
+export interface DotnetSubProject extends SubProjectBase {
+  projectType: 'dotnet'
+  csprojPath: string
   kind: 'runnable' | 'package' | 'library'
   targetFramework?: string
   version?: string
-  port?: number
-  appsettingsFiles: string[]
 }
+
+export interface AngularSubProject extends SubProjectBase {
+  projectType: 'angular'
+  angularJsonPath: string
+  packageJsonPath: string
+  angularVersion?: string
+  kind: 'application' | 'library'
+}
+
+export type SubProject = DotnetSubProject | AngularSubProject
 
 export interface FolderProject {
   id: string
@@ -37,14 +54,14 @@ export type SidebarSelection =
   | { type: 'subproject'; projectId: string; subProjectId: string }
   | null
 
-export type ViewTab = 'csproj' | 'appsettings' | 'services' | 'docker'
+export type ViewTab = 'projectFile' | 'config' | 'services' | 'docker'
 
 export type LaunchMode = 'watch' | 'release' | 'devcontainer'
 
 export interface ProcessInfo {
   id: string
   name: string
-  type: string
+  projectType: string
   status: 'running' | 'stopped' | 'starting' | 'error'
   pid?: number
   port?: number
@@ -97,19 +114,19 @@ declare global {
       readFileContent: (filePath: string) => Promise<string>
       writeFileContent: (filePath: string, content: string) => Promise<void>
 
-      // Appsettings
-      readAppsettings: (filePath: string) => Promise<unknown>
-      writeAppsettings: (filePath: string, data: unknown) => Promise<void>
-      watchAppsettings: (filePath: string) => Promise<void>
-      unwatchAppsettings: (filePath: string) => Promise<void>
+      // Config files (was appsettings)
+      readConfig: (filePath: string, projectType: ProjectType) => Promise<unknown>
+      writeConfig: (filePath: string, data: unknown, projectType: ProjectType) => Promise<void>
+      watchConfig: (filePath: string) => Promise<void>
+      unwatchConfig: (filePath: string) => Promise<void>
 
       // Profiles
       listProfiles: (projectId: string, filePath: string) => Promise<string[]>
-      saveProfile: (projectId: string, filePath: string, name: string, currentData: Record<string, unknown>) => Promise<void>
-      applyProfile: (projectId: string, filePath: string, name: string) => Promise<{ merged: Record<string, unknown> | null; error?: string }>
+      saveProfile: (projectId: string, filePath: string, name: string, currentData: Record<string, unknown>, projectType: ProjectType) => Promise<void>
+      applyProfile: (projectId: string, filePath: string, name: string, projectType: ProjectType) => Promise<{ merged: Record<string, unknown> | null; error?: string }>
       deleteProfile: (projectId: string, filePath: string, name: string) => Promise<void>
       getBaseline: (projectId: string, filePath: string) => Promise<Record<string, unknown> | null>
-      resetBaseline: (projectId: string, filePath: string) => Promise<Record<string, unknown>>
+      resetBaseline: (projectId: string, filePath: string, projectType: ProjectType) => Promise<Record<string, unknown>>
 
       // Process
       startProcess: (config: unknown) => Promise<ProcessInfo>
@@ -140,7 +157,7 @@ declare global {
 
       // Events
       onProcessLog: (callback: (data: { id: string; data: string }) => void) => () => void
-      onAppsettingsChanged: (callback: (data: { filePath: string }) => void) => () => void
+      onConfigChanged: (callback: (data: { filePath: string }) => void) => () => void
       onDockerStatus: (callback: (data: unknown) => void) => () => void
       onBranchChanged: (callback: (data: { repoPath: string; branch: string }) => void) => () => void
     }

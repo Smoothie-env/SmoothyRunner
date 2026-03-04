@@ -4,9 +4,14 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { SettingsTree } from '@/components/appsettings/SettingsTree'
 import { ServicePanel } from '@/components/services/ServicePanel'
 import { DockerPanel } from '@/components/docker/DockerPanel'
-import { CsprojViewer } from '@/components/projects/CsprojViewer'
+import { ProjectFileViewer } from '@/components/projects/ProjectFileViewer'
 import { FileCode, FileJson, Play, Container, Zap } from 'lucide-react'
-import type { ViewTab } from '@/types'
+import type { ViewTab, SubProject } from '@/types'
+
+function isRunnableSubProject(sp: SubProject): boolean {
+  return (sp.projectType === 'dotnet' && sp.kind === 'runnable')
+    || (sp.projectType === 'angular' && sp.kind === 'application')
+}
 
 export function MainPanel() {
   const selection = useProjectStore(s => s.selection)
@@ -21,11 +26,11 @@ export function MainPanel() {
 
   if (selection?.type === 'subproject' && activeSubProject) {
     headerName = activeSubProject.name
-    availableTabs.push('csproj')
-    if (activeSubProject.appsettingsFiles.length > 0) {
-      availableTabs.push('appsettings')
+    availableTabs.push('projectFile')
+    if (activeSubProject.configFiles.length > 0) {
+      availableTabs.push('config')
     }
-    if (activeSubProject.kind === 'runnable') {
+    if (isRunnableSubProject(activeSubProject)) {
       availableTabs.push('services')
     }
   } else if (selection?.type === 'project' && activeProject) {
@@ -40,11 +45,10 @@ export function MainPanel() {
     if (availableTabs.length === 0) return
     if (availableTabs.includes(activeTab)) return
 
-    // Default: appsettings if available, else csproj
-    if (availableTabs.includes('appsettings')) {
-      setActiveTab('appsettings')
-    } else if (availableTabs.includes('csproj')) {
-      setActiveTab('csproj')
+    if (availableTabs.includes('config')) {
+      setActiveTab('config')
+    } else if (availableTabs.includes('projectFile')) {
+      setActiveTab('projectFile')
     } else {
       setActiveTab(availableTabs[0])
     }
@@ -90,16 +94,16 @@ export function MainPanel() {
         <span className="text-sm font-medium titlebar-no-drag">{headerName}</span>
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as ViewTab)} className="titlebar-no-drag">
           <TabsList>
-            {availableTabs.includes('csproj') && (
-              <TabsTrigger value="csproj">
+            {availableTabs.includes('projectFile') && (
+              <TabsTrigger value="projectFile">
                 <FileCode className="h-3.5 w-3.5 mr-1" />
-                .csproj
+                Project File
               </TabsTrigger>
             )}
-            {availableTabs.includes('appsettings') && (
-              <TabsTrigger value="appsettings">
+            {availableTabs.includes('config') && (
+              <TabsTrigger value="config">
                 <FileJson className="h-3.5 w-3.5 mr-1" />
-                Settings
+                Config
               </TabsTrigger>
             )}
             {availableTabs.includes('services') && (
@@ -120,8 +124,8 @@ export function MainPanel() {
 
       {/* Tab content */}
       <div className="flex-1 overflow-hidden">
-        {activeTab === 'csproj' && <CsprojViewer />}
-        {activeTab === 'appsettings' && <SettingsTree />}
+        {activeTab === 'projectFile' && <ProjectFileViewer />}
+        {activeTab === 'config' && <SettingsTree />}
         {activeTab === 'services' && <ServicePanel />}
         {activeTab === 'docker' && <DockerPanel />}
       </div>

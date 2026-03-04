@@ -7,15 +7,18 @@ import { cn } from '@/lib/utils'
 
 export function ProfileSelector() {
   const project = useProjectStore(s => s.activeProject())
-  const activeFile = useProjectStore(s => s.activeAppsettingsFile)
+  const subProject = useProjectStore(s => s.activeSubProject())
+  const activeFile = useProjectStore(s => s.activeConfigFile)
   const activeProfile = useProjectStore(s => s.activeProfile)
   const setActiveProfile = useProjectStore(s => s.setActiveProfile)
-  const setAppsettingsData = useProjectStore(s => s.setAppsettingsData)
-  const setAppsettingsDirty = useProjectStore(s => s.setAppsettingsDirty)
+  const setConfigData = useProjectStore(s => s.setConfigData)
+  const setConfigDirty = useProjectStore(s => s.setConfigDirty)
 
   const [profiles, setProfiles] = useState<string[]>([])
   const [open, setOpen] = useState(false)
   const [editorOpen, setEditorOpen] = useState(false)
+
+  const projectType = subProject?.projectType
 
   useEffect(() => {
     if (!project || !activeFile) return
@@ -29,11 +32,11 @@ export function ProfileSelector() {
   }
 
   const handleApply = async (name: string) => {
-    if (!project || !activeFile) return
-    const result = await window.smoothyApi.applyProfile(project.id, activeFile, name)
+    if (!project || !activeFile || !projectType) return
+    const result = await window.smoothyApi.applyProfile(project.id, activeFile, name, projectType)
     if (result.merged) {
-      setAppsettingsData(result.merged)
-      setAppsettingsDirty(true)
+      setConfigData(result.merged)
+      setConfigDirty(true)
       setActiveProfile(name)
       setOpen(false)
     }
@@ -51,8 +54,8 @@ export function ProfileSelector() {
     if (!project || !activeFile) return
     const baseline = await window.smoothyApi.getBaseline(project.id, activeFile)
     if (baseline) {
-      setAppsettingsData(baseline)
-      setAppsettingsDirty(true)
+      setConfigData(baseline)
+      setConfigDirty(true)
       setActiveProfile(null)
     }
     setOpen(false)

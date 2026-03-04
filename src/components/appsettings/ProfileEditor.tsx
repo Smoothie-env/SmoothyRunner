@@ -14,15 +14,18 @@ export function ProfileEditor({ open, onOpenChange, onSaved }: ProfileEditorProp
   const [name, setName] = useState('')
   const [saving, setSaving] = useState(false)
   const project = useProjectStore(s => s.activeProject())
-  const appsettingsData = useProjectStore(s => s.appsettingsData)
-  const activeFile = useProjectStore(s => s.activeAppsettingsFile)
+  const subProject = useProjectStore(s => s.activeSubProject())
+  const configData = useProjectStore(s => s.configData)
+  const activeFile = useProjectStore(s => s.activeConfigFile)
+
+  const projectType = subProject?.projectType
 
   const handleSave = async () => {
-    if (!project || !appsettingsData || !activeFile || !name.trim()) return
+    if (!project || !configData || !activeFile || !name.trim() || !projectType) return
 
     setSaving(true)
     try {
-      await window.smoothyApi.saveProfile(project.id, activeFile, name.trim(), appsettingsData)
+      await window.smoothyApi.saveProfile(project.id, activeFile, name.trim(), configData, projectType)
       onSaved()
       setName('')
     } catch (err) {
@@ -38,7 +41,7 @@ export function ProfileEditor({ open, onOpenChange, onSaved }: ProfileEditorProp
         <DialogHeader>
           <DialogTitle>Save Profile</DialogTitle>
           <DialogDescription>
-            Save the current appsettings state as a named profile for quick switching
+            Save the current configuration state as a named profile for quick switching
           </DialogDescription>
         </DialogHeader>
 

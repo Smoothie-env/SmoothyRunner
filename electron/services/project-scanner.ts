@@ -1,22 +1,13 @@
 import fs from 'fs/promises'
 import path from 'path'
-import { XMLParser } from 'fast-xml-parser'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
+import { getAllHandlers } from './project-types/registry'
+import type { ScannedSubProject } from './project-types/project-type-handler'
 
 const execFileAsync = promisify(execFile)
 
-export interface ScannedSubProject {
-  id: string
-  name: string
-  csprojPath: string
-  dirPath: string
-  kind: 'runnable' | 'package' | 'library'
-  targetFramework?: string
-  version?: string
-  port?: number
-  appsettingsFiles: string[]
-}
+export type { ScannedSubProject }
 
 export interface ScannedFolderProject {
   id: string
@@ -36,11 +27,9 @@ export interface ScannedFolderProject {
 const EXCLUDE_DIRS = new Set(['bin', 'obj', 'node_modules', '.git', 'dist', 'wwwroot', '.vs', '.idea', 'packages'])
 
 export class ProjectScanner {
-  private xmlParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' })
-
   async scanFolder(dirPath: string): Promise<ScannedFolderProject> {
     const subProjects: ScannedSubProject[] = []
-    await this.scanRecursive(dirPath, subProjects, 0)
+    await this.scanRecursive(dirPath, subProjects, 0, dirPath)
 
     const rootEntries = await this.safeReaddir(dirPath)
 
@@ -50,7 +39,6 @@ export class ProjectScanner {
       ? path.join(dirPath, rootEntries.includes('docker-compose.yml') ? 'docker-compose.yml' : 'docker-compose.yaml')
       : undefined
 
-    // Detect devcontainer
     const devContainerJsonPath = path.join(dirPath, '.devcontainer', 'devcontainer.json')
     const hasDevContainer = await this.fileExists(devContainerJsonPath)
 
@@ -73,39 +61,24 @@ export class ProjectScanner {
 
   async rescanSubProjects(rootPath: string): Promise<ScannedSubProject[]> {
     const subProjects: ScannedSubProject[] = []
-    await this.scanRecursive(rootPath, subProjects, 0)
+    await this.scanRecursive(rootPath, subProjects, 0, rootPath)
     return subProjects
   }
 
-  private async scanRecursive(dirPath: string, subProjects: ScannedSubProject[], depth: number): Promise<void> {
+  private async scanRecursive(dirPath: string, subProjects: ScannedSubProject[], depth: number, rootPath: string): Promise<void> {
     if (depth > 5) return
 
     const entries = await this.safeReaddir(dirPath)
     if (entries.length === 0) return
 
-    const csprojFiles = entries.filter(e => e.endsWith('.csproj'))
-    for (const csproj of csprojFiles) {
-      const csprojPath = path.join(dirPath, csproj)
-      const info = await this.parseCsproj(csprojPath)
-      const hasProgramCs = await this.fileExists(path.join(dirPath, 'Program.cs'))
-      const appsettingsFiles = await this.findAppsettingsFiles(dirPath)
-      const port = await this.detectPort(dirPath)
-
-      const kind = (info.isWeb || hasProgramCs) ? 'runnable' as const
-        : info.isPackable ? 'package' as const
-        : 'library' as const
-
-      subProjects.push({
-        id: this.generateId(csprojPath),
-        name: csproj.replace('.csproj', ''),
-        csprojPath,
-        dirPath,
-        kind,
-        targetFramework: info.targetFramework,
-        version: info.version,
-        port,
-        appsettingsFiles
-      })
+    // Ask each handler if it detects its project type in this directory
+    const handlers = getAllHandlers()
+    for (const handler of handlers) {
+      const detected = await handler.detect(entries, dirPath)
+      if (detected) {
+        const scanned = await handler.scan(dirPath, rootPath)
+        subProjects.push(...scanned)
+      }
     }
 
     for (const entry of entries) {
@@ -114,68 +87,12 @@ export class ProjectScanner {
       try {
         const stat = await fs.stat(fullPath)
         if (stat.isDirectory()) {
-          await this.scanRecursive(fullPath, subProjects, depth + 1)
+          await this.scanRecursive(fullPath, subProjects, depth + 1, rootPath)
         }
       } catch {
         // Skip inaccessible entries
       }
     }
-  }
-
-  private async parseCsproj(csprojPath: string): Promise<{ isWeb: boolean; targetFramework?: string; version?: string; isPackable: boolean }> {
-    try {
-      const content = await fs.readFile(csprojPath, 'utf-8')
-      const parsed = this.xmlParser.parse(content)
-      const project = parsed.Project
-      if (!project) return { isWeb: false, isPackable: false }
-
-      const sdk: string = project['@_Sdk'] || ''
-      const isWeb = sdk.includes('Microsoft.NET.Sdk.Web')
-
-      const propertyGroups = Array.isArray(project.PropertyGroup) ? project.PropertyGroup : [project.PropertyGroup]
-      const targetFramework = propertyGroups[0]?.TargetFramework
-
-      let version: string | undefined
-      let isPackable = false
-      for (const pg of propertyGroups) {
-        if (pg?.Version) version = String(pg.Version)
-        if (pg?.GeneratePackageOnBuild === true || pg?.GeneratePackageOnBuild === 'true') isPackable = true
-        if (pg?.PackageId) isPackable = true
-        if (pg?.PackageIcon || pg?.PackageIconUrl) isPackable = true
-        if (pg?.IsPackable === false || pg?.IsPackable === 'false') isPackable = false
-      }
-
-      return { isWeb, targetFramework, version, isPackable }
-    } catch {
-      return { isWeb: false, isPackable: false }
-    }
-  }
-
-  private async findAppsettingsFiles(dirPath: string): Promise<string[]> {
-    const entries = await this.safeReaddir(dirPath)
-    return entries
-      .filter(e => e.startsWith('appsettings') && e.endsWith('.json'))
-      .map(e => path.join(dirPath, e))
-      .sort()
-  }
-
-  private async detectPort(dirPath: string): Promise<number | undefined> {
-    const launchSettingsPath = path.join(dirPath, 'Properties', 'launchSettings.json')
-    try {
-      const content = await fs.readFile(launchSettingsPath, 'utf-8')
-      const settings = JSON.parse(content)
-      const profiles = settings.profiles || {}
-      for (const profile of Object.values(profiles) as any[]) {
-        const url = profile.applicationUrl
-        if (url) {
-          const match = url.match(/:(\d+)/)
-          if (match) return parseInt(match[1], 10)
-        }
-      }
-    } catch {
-      // No launch settings
-    }
-    return undefined
   }
 
   private async getCurrentBranch(dirPath: string): Promise<string | undefined> {
