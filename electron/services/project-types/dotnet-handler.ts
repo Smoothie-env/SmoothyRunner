@@ -78,7 +78,7 @@ export class DotnetHandler implements ProjectTypeHandler {
     return dirEntries.some(e => e.endsWith('.csproj'))
   }
 
-  async scan(dirPath: string): Promise<ScannedDotnetSubProject[]> {
+  async scan(dirPath: string, rootPath: string): Promise<ScannedDotnetSubProject[]> {
     const entries = await this.safeReaddir(dirPath)
     const csprojFiles = entries.filter(e => e.endsWith('.csproj'))
     const results: ScannedDotnetSubProject[] = []
@@ -95,7 +95,7 @@ export class DotnetHandler implements ProjectTypeHandler {
         : 'library' as const
 
       results.push({
-        id: generateId(csprojPath),
+        id: generateId(path.relative(rootPath, csprojPath)),
         name: csproj.replace('.csproj', ''),
         projectType: 'dotnet',
         csprojPath,
@@ -156,7 +156,7 @@ export class DotnetHandler implements ProjectTypeHandler {
   getConfigFileHandler(): ConfigFileHandler {
     return {
       async read(filePath: string): Promise<Record<string, unknown>> {
-        const content = await fs.readFile(filePath, 'utf-8')
+        const content = (await fs.readFile(filePath, 'utf-8')).replace(/^\uFEFF/, '')
         return JSON.parse(stripJsonComments(content))
       },
       async write(filePath: string, data: Record<string, unknown>): Promise<void> {
@@ -167,7 +167,7 @@ export class DotnetHandler implements ProjectTypeHandler {
 
   private async parseCsproj(csprojPath: string): Promise<{ isWeb: boolean; targetFramework?: string; version?: string; isPackable: boolean }> {
     try {
-      const content = await fs.readFile(csprojPath, 'utf-8')
+      const content = (await fs.readFile(csprojPath, 'utf-8')).replace(/^\uFEFF/, '')
       const parsed = this.xmlParser.parse(content)
       const project = parsed.Project
       if (!project) return { isWeb: false, isPackable: false }
@@ -203,21 +203,47 @@ export class DotnetHandler implements ProjectTypeHandler {
   }
 
   private async detectPort(dirPath: string): Promise<number | undefined> {
+    // 1. Properties/launchSettings.json — applicationUrl
     const launchSettingsPath = path.join(dirPath, 'Properties', 'launchSettings.json')
     try {
-      const content = await fs.readFile(launchSettingsPath, 'utf-8')
+      const content = (await fs.readFile(launchSettingsPath, 'utf-8')).replace(/^\uFEFF/, '')
       const settings = JSON.parse(content)
       const profiles = settings.profiles || {}
       for (const profile of Object.values(profiles) as any[]) {
         const url = profile.applicationUrl
         if (url) {
-          const match = url.match(/:(\d+)/)
+          const httpUrl = url.split(';').find((u: string) => u.trim().startsWith('http://')) || url
+          const match = httpUrl.match(/:(\d+)/)
           if (match) return parseInt(match[1], 10)
         }
       }
-    } catch {
-      // No launch settings
+    } catch { /* no launchSettings */ }
+
+    // 2. appsettings.Development.json / appsettings.json — Kestrel endpoints or Urls
+    for (const filename of ['appsettings.Development.json', 'appsettings.json']) {
+      try {
+        const content = (await fs.readFile(path.join(dirPath, filename), 'utf-8')).replace(/^\uFEFF/, '')
+        const settings = JSON.parse(stripJsonComments(content))
+
+        const endpoints = settings.Kestrel?.Endpoints
+        if (endpoints) {
+          for (const ep of Object.values(endpoints) as any[]) {
+            const url: string | undefined = ep.Url
+            if (url) {
+              const match = url.match(/:(\d+)/)
+              if (match) return parseInt(match[1], 10)
+            }
+          }
+        }
+
+        const urls: string | undefined = settings.Urls || settings.urls
+        if (urls) {
+          const match = urls.match(/:(\d+)/)
+          if (match) return parseInt(match[1], 10)
+        }
+      } catch { /* no appsettings */ }
     }
+
     return undefined
   }
 

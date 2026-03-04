@@ -220,6 +220,10 @@ export function registerAllHandlers(mainWindow: BrowserWindow): void {
     return git.checkout(repoPath, branch)
   })
 
+  ipcMain.handle('git:createBranch', async (_event, repoPath: string, branchName: string) => {
+    return git.createBranch(repoPath, branchName)
+  })
+
   ipcMain.handle('git:isDirty', async (_event, repoPath: string) => {
     return git.isDirty(repoPath)
   })

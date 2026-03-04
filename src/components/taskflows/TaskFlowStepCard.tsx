@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import {
   X, Loader2, Circle, AlertCircle, Eye, Rocket, GitBranch, Minus,
-  Play, Settings, ChevronDown, ChevronRight, Check, AlertTriangle, GitFork, Search, Archive
+  Play, Settings, ChevronDown, ChevronRight, Check, AlertTriangle, GitFork, Search, Archive, Filter
 } from 'lucide-react'
 import { Select, SelectItem } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
@@ -47,12 +47,19 @@ export function TaskFlowStepCard({
 }: TaskFlowStepCardProps) {
   const folderProjects = useProjectStore(s => s.folderProjects)
   const updateFolderProject = useProjectStore(s => s.updateFolderProject)
+  const groups = useProjectStore(s => s.groups)
+  const [groupFilter, setGroupFilter] = useState<string>('__all__')
   const [branches, setBranches] = useState<string[]>([])
   const [loadingBranches, setLoadingBranches] = useState(false)
   const [switching, setSwitching] = useState(false)
-  const [dirtyPrompt, setDirtyPrompt] = useState<string | null>(null)
   const [showConfigEditor, setShowConfigEditor] = useState(false)
   const [profileRefreshKey, setProfileRefreshKey] = useState(0)
+
+  // New branch state
+  const [showNewBranch, setShowNewBranch] = useState(false)
+  const [newBranchName, setNewBranchName] = useState('')
+  const [creatingBranch, setCreatingBranch] = useState(false)
+  const newBranchRef = useRef<HTMLInputElement>(null)
 
   // Branch search state
   const [branchSearch, setBranchSearch] = useState('')
@@ -74,18 +81,46 @@ export function TaskFlowStepCard({
     return selectedProject.subProjects.filter(isRunnableSubProject)
   }, [selectedProject])
 
+  const filteredProjects = useMemo(() => {
+    if (groupFilter === '__all__') return folderProjects
+    if (groupFilter === '__unassigned__') return folderProjects.filter(p => !p.groupId)
+    return folderProjects.filter(p => p.groupId === groupFilter)
+  }, [folderProjects, groupFilter])
+
+  const sortedGroups = useMemo(() =>
+    [...groups].sort((a, b) => a.order - b.order),
+    [groups]
+  )
+
   const selectedSubProject = selectedProject?.subProjects.find(sp => sp.id === step.subProjectId)
 
-  // Load branches when project changes
+  // Effective path: worktree path in worktree mode, originalRootPath otherwise
+  const effectivePath = step.branchStrategy === 'worktree' && step.worktreePath
+    ? step.worktreePath
+    : selectedProject?.originalRootPath
+
+  // Rescan sub-projects when card is expanded to get fresh port data
   useEffect(() => {
-    if (!selectedProject) {
+    if (!expanded || !selectedProject || !effectivePath) return
+    const rescan = async () => {
+      try {
+        const scanned = await window.smoothyApi.scanFolder(effectivePath)
+        updateFolderProject(selectedProject.id, { subProjects: scanned.subProjects })
+      } catch { /* scan failed */ }
+    }
+    rescan()
+  }, [expanded, selectedProject?.id, effectivePath])
+
+  // Load branches when project or effective path changes
+  useEffect(() => {
+    if (!selectedProject || !effectivePath) {
       setBranches([])
       return
     }
     const loadBranches = async () => {
       setLoadingBranches(true)
       try {
-        const result = await window.smoothyApi.gitBranches(selectedProject.rootPath)
+        const result = await window.smoothyApi.gitBranches(effectivePath)
         setBranches(result.local)
       } catch {
         setBranches([])
@@ -94,9 +129,9 @@ export function TaskFlowStepCard({
       }
     }
     loadBranches()
-  }, [selectedProject?.rootPath])
+  }, [effectivePath])
 
-  // Load dirty count for checkout mode
+  // Load dirty count for checkout mode (always use originalRootPath)
   useEffect(() => {
     if (!selectedProject || step.branchStrategy !== 'checkout') {
       setDirtyCount(0)
@@ -104,14 +139,14 @@ export function TaskFlowStepCard({
     }
     const loadDirtyCount = async () => {
       try {
-        const count = await window.smoothyApi.gitDirtyCount(selectedProject.rootPath)
+        const count = await window.smoothyApi.gitDirtyCount(selectedProject.originalRootPath)
         setDirtyCount(count)
       } catch {
         setDirtyCount(0)
       }
     }
     loadDirtyCount()
-  }, [selectedProject?.rootPath, step.branchStrategy])
+  }, [selectedProject?.originalRootPath, step.branchStrategy])
 
   // Check worktree existence
   const sanitizedFlowName = flowName.replace(/\s+/g, '_')
@@ -121,20 +156,30 @@ export function TaskFlowStepCard({
   const worktreeDirName = expectedWorktreePath.split('/').pop() || ''
 
   useEffect(() => {
-    if (!selectedProject || step.branchStrategy !== 'worktree') {
+    if (!selectedProject) {
+      setWorktreeExists(false)
+      return
+    }
+    const pathToCheck = step.worktreePath || expectedWorktreePath
+    if (!pathToCheck) {
       setWorktreeExists(false)
       return
     }
     const checkWorktree = async () => {
       try {
         const worktrees = await window.smoothyApi.gitWorktreeList(selectedProject.originalRootPath)
-        setWorktreeExists(worktrees.some(w => w.path === expectedWorktreePath))
+        const found = worktrees.some(w => w.path === pathToCheck)
+        setWorktreeExists(found)
+        // Auto-save worktreePath if worktree exists on disk but not yet saved on step
+        if (found && !step.worktreePath) {
+          onChange({ worktreePath: pathToCheck })
+        }
       } catch {
         setWorktreeExists(false)
       }
     }
     checkWorktree()
-  }, [selectedProject?.originalRootPath, step.branchStrategy, expectedWorktreePath])
+  }, [selectedProject?.originalRootPath, step.worktreePath, expectedWorktreePath])
 
   // Branch search — filtered branches
   const filteredBranches = useMemo(() => {
@@ -147,7 +192,7 @@ export function TaskFlowStepCard({
     return list.slice().sort((a, b) => {
       if (a === current) return -1
       if (b === current) return 1
-      return a.localeCompare(b)
+      return a.length - b.length || a.localeCompare(b)
     })
   }, [branches, branchSearch, branchStatus?.currentBranch])
 
@@ -168,66 +213,20 @@ export function TaskFlowStepCard({
   // Branch display helpers
   const currentBranch = branchStatus?.currentBranch
   const targetBranch = step.branch
-  const hasMismatch = branchStatus?.mismatch ?? false
+  const hasMismatch = step.branchStrategy !== 'worktree' && (branchStatus?.mismatch ?? false)
 
   // Profile summary for collapsed view
   const profileSummary = step.profiles.length > 0
     ? step.profiles.map(p => p.profileName).join(', ')
     : null
 
-  // Branch switch logic (reused from BranchSelector pattern)
-  const doCheckoutAndRescan = async (branch: string) => {
-    if (!selectedProject) return
-    await window.smoothyApi.gitCheckout(selectedProject.rootPath, branch)
-    const scanned = await window.smoothyApi.scanFolder(selectedProject.rootPath)
-    updateFolderProject(selectedProject.id, { subProjects: scanned.subProjects, branch })
-  }
-
-  const handleSwitchNow = async () => {
-    if (!selectedProject || !targetBranch) return
-    setSwitching(true)
-    try {
-      if (step.branchStrategy === 'worktree') {
-        const worktreePath = `${selectedProject.originalRootPath}--${targetBranch.replace(/\//g, '-')}`
-        await window.smoothyApi.gitWorktreeAdd(selectedProject.originalRootPath, targetBranch, worktreePath)
-        await window.smoothyApi.setProjectWorktree(selectedProject.id, worktreePath)
-      } else {
-        const dirty = await window.smoothyApi.gitIsDirty(selectedProject.rootPath)
-        if (dirty) {
-          setSwitching(false)
-          setDirtyPrompt(targetBranch)
-          return
-        }
-        await doCheckoutAndRescan(targetBranch)
-      }
-    } catch (err: any) {
-      console.error('Branch switch failed:', err)
-    } finally {
-      setSwitching(false)
-    }
-  }
-
-  const handleStashAndSwitch = async () => {
-    if (!selectedProject || !dirtyPrompt) return
-    setSwitching(true)
-    setDirtyPrompt(null)
-    try {
-      await window.smoothyApi.gitStash(selectedProject.rootPath, `taskflow: switch to ${dirtyPrompt}`)
-      await doCheckoutAndRescan(dirtyPrompt)
-    } catch (err: any) {
-      console.error('Stash and switch failed:', err)
-    } finally {
-      setSwitching(false)
-    }
-  }
-
   // Stash handler for dirty count section
   const handleStash = async () => {
     if (!selectedProject) return
     setStashing(true)
     try {
-      await window.smoothyApi.gitStash(selectedProject.rootPath, `taskflow: stash from step #${stepNumber}`)
-      const count = await window.smoothyApi.gitDirtyCount(selectedProject.rootPath)
+      await window.smoothyApi.gitStash(selectedProject.originalRootPath, `taskflow: stash from step #${stepNumber}`)
+      const count = await window.smoothyApi.gitDirtyCount(selectedProject.originalRootPath)
       setDirtyCount(count)
     } catch (err: any) {
       console.error('Stash failed:', err)
@@ -236,13 +235,29 @@ export function TaskFlowStepCard({
     }
   }
 
+  // Unstash handler
+  const handleUnstash = async () => {
+    if (!selectedProject) return
+    setStashing(true)
+    try {
+      await window.smoothyApi.gitStashPop(selectedProject.originalRootPath)
+      const count = await window.smoothyApi.gitDirtyCount(selectedProject.originalRootPath)
+      setDirtyCount(count)
+    } catch (err: any) {
+      console.error('Unstash failed:', err)
+    } finally {
+      setStashing(false)
+    }
+  }
+
   // Worktree handlers
   const handleCreateWorktree = async () => {
-    if (!selectedProject || !step.branch) return
+    const branch = step.branch || currentBranch
+    if (!selectedProject || !branch) return
     setWorktreeLoading(true)
     try {
-      await window.smoothyApi.gitWorktreeAdd(selectedProject.originalRootPath, step.branch, expectedWorktreePath)
-      await window.smoothyApi.setProjectWorktree(selectedProject.id, expectedWorktreePath)
+      await window.smoothyApi.gitWorktreeAdd(selectedProject.originalRootPath, branch, expectedWorktreePath)
+      onChange({ worktreePath: expectedWorktreePath })
       setWorktreeExists(true)
     } catch (err: any) {
       console.error('Create worktree failed:', err)
@@ -251,12 +266,54 @@ export function TaskFlowStepCard({
     }
   }
 
+  // Change Default: checkout step.branch in the working directory
+  const handleChangeDefault = async () => {
+    if (!selectedProject || !step.branch) return
+    setSwitching(true)
+    try {
+      const rootPath = selectedProject.originalRootPath
+      const dirty = await window.smoothyApi.gitIsDirty(rootPath)
+      if (dirty) {
+        await window.smoothyApi.gitStash(rootPath, `taskflow: switch to ${step.branch}`)
+      }
+      await window.smoothyApi.gitCheckout(rootPath, step.branch)
+      const scanned = await window.smoothyApi.scanFolder(rootPath)
+      updateFolderProject(selectedProject.id, { subProjects: scanned.subProjects, branch: step.branch })
+    } catch (err: any) {
+      console.error('Change default failed:', err)
+    } finally {
+      setSwitching(false)
+    }
+  }
+
+  // Create new branch from current
+  const handleCreateBranch = async () => {
+    const name = newBranchName.trim()
+    if (!selectedProject || !name) return
+    setCreatingBranch(true)
+    try {
+      const rootPath = effectivePath || selectedProject.originalRootPath
+      await window.smoothyApi.gitCreateBranch(rootPath, name)
+      onChange({ branch: name })
+      setNewBranchName('')
+      setShowNewBranch(false)
+      // Refresh branches list
+      const result = await window.smoothyApi.gitBranches(rootPath)
+      setBranches(result.local)
+    } catch (err: any) {
+      console.error('Create branch failed:', err)
+    } finally {
+      setCreatingBranch(false)
+    }
+  }
+
   const handleRemoveWorktree = async () => {
     if (!selectedProject) return
     setWorktreeLoading(true)
     try {
-      await window.smoothyApi.gitWorktreeRemove(expectedWorktreePath)
-      await window.smoothyApi.setProjectWorktree(selectedProject.id, null)
+      const pathToRemove = step.worktreePath || expectedWorktreePath
+      await window.smoothyApi.gitWorktreeRemove(pathToRemove)
+      onChange({ worktreePath: null, branchStrategy: 'checkout' })
       setWorktreeExists(false)
     } catch (err: any) {
       console.error('Remove worktree failed:', err)
@@ -407,24 +464,30 @@ export function TaskFlowStepCard({
         </div>
       )}
 
-      {/* Dirty prompt dialog */}
-      {dirtyPrompt && (
-        <div className="mx-3 mb-2 p-2 bg-orange-500/10 border border-orange-500/30 rounded-md text-xs space-y-2">
-          <p className="text-orange-400">Working directory has uncommitted changes. Stash and switch?</p>
-          <div className="flex items-center gap-2">
-            <Button size="sm" variant="outline" className="h-6 text-xs" onClick={handleStashAndSwitch}>
-              Stash & Switch
-            </Button>
-            <Button size="sm" variant="ghost" className="h-6 text-xs" onClick={() => setDirtyPrompt(null)}>
-              Cancel
-            </Button>
-          </div>
-        </div>
-      )}
-
       {/* Expanded form */}
       {expanded && (
         <div className={cn('border-t px-3 py-3 space-y-3', isExecuting && 'opacity-60 pointer-events-none')}>
+          {/* Group filter */}
+          {groups.length > 0 && (
+            <div className="space-y-1">
+              <label className="text-[10px] text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+                <Filter className="h-3 w-3" />
+                Group
+              </label>
+              <Select
+                value={groupFilter}
+                onValueChange={setGroupFilter}
+              >
+                <SelectItem value="__all__">All</SelectItem>
+                {sortedGroups.map(g => {
+                  const count = folderProjects.filter(p => p.groupId === g.id).length
+                  return <SelectItem key={g.id} value={g.id}>{g.name} ({count})</SelectItem>
+                })}
+                <SelectItem value="__unassigned__">Unassigned ({folderProjects.filter(p => !p.groupId).length})</SelectItem>
+              </Select>
+            </div>
+          )}
+
           {/* Project selector */}
           <div className="space-y-1">
             <label className="text-[10px] text-muted-foreground uppercase tracking-wider">Project</label>
@@ -433,7 +496,7 @@ export function TaskFlowStepCard({
               onValueChange={(v) => onChange({ projectId: v, subProjectId: '', branch: null, profiles: [] })}
               placeholder="Select project..."
             >
-              {folderProjects.map(p => (
+              {filteredProjects.map(p => (
                 <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
               ))}
             </Select>
@@ -460,7 +523,7 @@ export function TaskFlowStepCard({
             <div className="space-y-2">
               <label className="text-[10px] text-muted-foreground uppercase tracking-wider">Branch</label>
 
-              {/* Current branch (read-only) */}
+              {/* Current branch (read-only) + Set as Default */}
               <div className="flex items-center gap-2 text-xs">
                 <span className="text-muted-foreground">Current:</span>
                 <span className={cn(
@@ -469,18 +532,68 @@ export function TaskFlowStepCard({
                 )}>
                   {branchStatus?.loading ? 'Loading...' : (currentBranch || 'unknown')}
                 </span>
+                {step.branchStrategy !== 'worktree' && currentBranch && currentBranch !== step.branch && !branchStatus?.loading && (
+                  <>
+                    <button
+                      onClick={() => onChange({ branch: currentBranch })}
+                      className="text-[10px] text-blue-400 hover:underline"
+                    >
+                      Set as Default
+                    </button>
+                    {step.branch && (
+                      <button
+                        onClick={handleChangeDefault}
+                        disabled={switching}
+                        className="text-[10px] text-orange-400 hover:underline disabled:opacity-50"
+                      >
+                        {switching ? 'Switching...' : 'Change Default'}
+                      </button>
+                    )}
+                  </>
+                )}
               </div>
 
-              {/* Target branch selector — searchable dropdown */}
+              {/* Target project path — shows real folder used at runtime */}
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-muted-foreground shrink-0">Path:</span>
+                {step.branchStrategy === 'worktree' ? (
+                  step.worktreePath && worktreeExists ? (
+                    <span className="font-mono truncate text-orange-400">{step.worktreePath}</span>
+                  ) : (
+                    <span className="text-muted-foreground italic">Worktree not created yet</span>
+                  )
+                ) : (
+                  <span className="font-mono truncate text-muted-foreground">{selectedProject.originalRootPath}</span>
+                )}
+              </div>
+
+              {/* Target branch selector — searchable dropdown (locked in worktree mode) */}
               <div className="relative" ref={branchDropdownRef}>
                 <button
-                  onClick={() => { setBranchDropdownOpen(!branchDropdownOpen); setBranchSearch('') }}
-                  className="w-full h-8 rounded-md border border-input bg-transparent px-2 text-xs text-left truncate flex items-center justify-between"
+                  onClick={() => {
+                    if (step.branchStrategy === 'worktree' && worktreeExists) return
+                    setBranchDropdownOpen(!branchDropdownOpen)
+                    setBranchSearch('')
+                  }}
+                  className={cn(
+                    'w-full h-8 rounded-md border border-input bg-transparent px-2 text-xs text-left truncate flex items-center justify-between',
+                    step.branchStrategy === 'worktree' && worktreeExists && 'opacity-50 cursor-not-allowed'
+                  )}
                 >
-                  <span className={step.branch ? 'text-foreground' : 'text-muted-foreground'}>
-                    {step.branch || 'Keep current'}
+                  <span className={
+                    (step.branchStrategy === 'worktree' && worktreeExists)
+                      ? 'text-foreground'
+                      : step.branch ? 'text-foreground' : 'text-muted-foreground'
+                  }>
+                    {step.branchStrategy === 'worktree' && worktreeExists
+                      ? (currentBranch || step.branch || 'unknown')
+                      : (step.branch || 'Keep current')
+                    }
                   </span>
-                  <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0" />
+                  {step.branchStrategy === 'worktree' && worktreeExists
+                    ? <GitFork className="h-3 w-3 text-orange-400 shrink-0" />
+                    : <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0" />
+                  }
                 </button>
                 {branchDropdownOpen && (
                   <div className="absolute left-0 top-full z-50 mt-1 w-full min-w-[200px] rounded-md border bg-popover shadow-md">
@@ -534,87 +647,148 @@ export function TaskFlowStepCard({
                 )}
               </div>
 
-              {/* Strategy toggle + Switch Now */}
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-0.5 p-0.5 bg-zinc-800/50 rounded-md">
+              {/* New branch inline */}
+              {showNewBranch ? (
+                <div className="flex items-center gap-1.5">
+                  <input
+                    ref={newBranchRef}
+                    value={newBranchName}
+                    onChange={e => setNewBranchName(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') handleCreateBranch()
+                      if (e.key === 'Escape') { setShowNewBranch(false); setNewBranchName('') }
+                    }}
+                    placeholder={`from ${currentBranch || 'HEAD'}...`}
+                    className="flex-1 h-7 rounded-md border border-input bg-transparent px-2 text-xs placeholder:text-muted-foreground outline-none focus:border-blue-500"
+                    autoFocus
+                    disabled={creatingBranch}
+                  />
                   <button
-                    className={cn(
-                      'flex items-center gap-1 px-2 py-1 rounded text-[11px] transition-colors',
-                      step.branchStrategy === 'checkout' ? 'bg-zinc-700 text-foreground' : 'text-muted-foreground hover:text-foreground'
-                    )}
-                    onClick={() => onChange({ branchStrategy: 'checkout' })}
+                    onClick={handleCreateBranch}
+                    disabled={creatingBranch || !newBranchName.trim()}
+                    className="h-7 px-2 rounded-md bg-blue-600 text-white text-xs hover:bg-blue-500 disabled:opacity-50 shrink-0"
                   >
-                    <GitBranch className="h-3 w-3" />
-                    Checkout
+                    {creatingBranch ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Create'}
                   </button>
                   <button
-                    className={cn(
-                      'flex items-center gap-1 px-2 py-1 rounded text-[11px] transition-colors',
-                      step.branchStrategy === 'worktree' ? 'bg-zinc-700 text-foreground' : 'text-muted-foreground hover:text-foreground'
-                    )}
-                    onClick={() => onChange({ branchStrategy: 'worktree' })}
+                    onClick={() => { setShowNewBranch(false); setNewBranchName('') }}
+                    className="h-7 w-7 flex items-center justify-center rounded-md hover:bg-zinc-700 shrink-0"
                   >
-                    <GitFork className="h-3 w-3" />
-                    Worktree
+                    <X className="h-3 w-3 text-muted-foreground" />
                   </button>
                 </div>
+              ) : (
+                <button
+                  onClick={() => { setShowNewBranch(true); setTimeout(() => newBranchRef.current?.focus(), 50) }}
+                  className="text-[11px] text-blue-400 hover:underline w-fit"
+                >
+                  + New Branch
+                </button>
+              )}
 
-                {hasMismatch && targetBranch && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-6 text-xs text-orange-400 border-orange-400/30 hover:bg-orange-400/10"
-                    onClick={handleSwitchNow}
-                    disabled={switching}
-                  >
-                    {switching ? (
-                      <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                    ) : null}
-                    Switch Now
-                  </Button>
-                )}
+              {/* Strategy toggle */}
+              <div className="flex items-center gap-0.5 p-0.5 bg-zinc-800/50 rounded-md w-fit">
+                <button
+                  className={cn(
+                    'flex items-center gap-1 px-2 py-1 rounded text-[11px] transition-colors',
+                    step.branchStrategy === 'checkout' ? 'bg-zinc-700 text-foreground' : 'text-muted-foreground hover:text-foreground'
+                  )}
+                  onClick={() => onChange({ branchStrategy: 'checkout' })}
+                >
+                  <GitBranch className="h-3 w-3" />
+                  Checkout
+                </button>
+                <button
+                  className={cn(
+                    'flex items-center gap-1 px-2 py-1 rounded text-[11px] transition-colors',
+                    step.branchStrategy === 'worktree' ? 'bg-zinc-700 text-foreground' : 'text-muted-foreground hover:text-foreground'
+                  )}
+                  onClick={() => onChange({ branchStrategy: 'worktree' })}
+                >
+                  <GitFork className="h-3 w-3" />
+                  Worktree
+                </button>
               </div>
 
-              {/* Checkout mode — dirty info + stash */}
-              {step.branchStrategy === 'checkout' && dirtyCount > 0 && (
+              {/* Checkout mode — dirty info + stash/unstash */}
+              {step.branchStrategy === 'checkout' && (
                 <div className="flex items-center gap-2 text-xs">
-                  <span className="text-orange-400">{dirtyCount} uncommitted</span>
+                  {dirtyCount > 0 ? (
+                    <>
+                      <span className="text-orange-400">{dirtyCount} uncommitted</span>
+                      <button
+                        onClick={handleStash}
+                        disabled={stashing}
+                        className="flex items-center gap-1 text-xs text-blue-400 hover:underline disabled:opacity-50"
+                      >
+                        {stashing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Archive className="h-3 w-3" />}
+                        Stash
+                      </button>
+                    </>
+                  ) : (
+                    <span className="text-muted-foreground">Clean</span>
+                  )}
                   <button
-                    onClick={handleStash}
+                    onClick={handleUnstash}
                     disabled={stashing}
-                    className="flex items-center gap-1 text-xs text-blue-400 hover:underline disabled:opacity-50"
+                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground hover:underline disabled:opacity-50"
                   >
                     {stashing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Archive className="h-3 w-3" />}
-                    Stash
+                    Unstash
                   </button>
                 </div>
               )}
 
-              {/* Worktree mode — create/status/remove */}
+              {/* Worktree mode — Main/Worktree switcher + Remove, or Create */}
               {step.branchStrategy === 'worktree' && selectedProject && (
-                worktreeLoading ? (
-                  <div className="flex items-center gap-2 text-xs">
-                    <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-                    <span className="text-muted-foreground">Working...</span>
-                  </div>
-                ) : worktreeExists ? (
-                  <div className="flex items-center gap-2 text-xs">
-                    <span className="text-green-500 font-mono truncate">{worktreeDirName}</span>
+                worktreeExists ? (
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-0.5 p-0.5 bg-zinc-800/50 rounded-md">
+                      <button
+                        className={cn(
+                          'px-2 py-1 rounded text-[11px] transition-colors',
+                          step.branchStrategy === 'checkout' ? 'bg-zinc-700 text-foreground' : 'text-muted-foreground hover:text-foreground'
+                        )}
+                        onClick={() => onChange({ branchStrategy: 'checkout' })}
+                      >
+                        Main
+                      </button>
+                      <button
+                        className={cn(
+                          'flex items-center gap-1 px-2 py-1 rounded text-[11px] transition-colors',
+                          step.branchStrategy === 'worktree' ? 'bg-zinc-700 text-foreground' : 'text-muted-foreground hover:text-foreground'
+                        )}
+                        onClick={() => onChange({ branchStrategy: 'worktree' })}
+                      >
+                        <GitFork className="h-3 w-3" />
+                        Worktree
+                      </button>
+                    </div>
                     <button
                       onClick={handleRemoveWorktree}
-                      className="text-xs text-destructive hover:underline"
+                      disabled={worktreeLoading}
+                      className="text-[10px] text-destructive hover:underline disabled:opacity-50"
                     >
                       Remove
                     </button>
                   </div>
-                ) : step.branch ? (
-                  <button
+                ) : worktreeLoading ? (
+                  <div className="flex items-center gap-2 text-xs">
+                    <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                    <span className="text-muted-foreground">Creating worktree...</span>
+                  </div>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 text-xs"
                     onClick={handleCreateWorktree}
-                    className="text-xs text-blue-400 hover:underline"
+                    disabled={!currentBranch && !step.branch}
                   >
+                    <GitFork className="h-3 w-3 mr-1" />
                     Create Worktree
-                  </button>
-                ) : null
+                  </Button>
+                )
               )}
             </div>
           )}

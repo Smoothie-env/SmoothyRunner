@@ -16,8 +16,13 @@ export function useBranchStatusTracker(steps: TaskFlowStep[]) {
     setBranchStatus(step.id, { currentBranch: null, loading: true, mismatch: false })
 
     try {
-      const currentBranch = await window.smoothyApi.gitCurrentBranch(project.rootPath)
-      const mismatch = step.branch !== null && step.branch !== currentBranch
+      const effectivePath = step.branchStrategy === 'worktree' && step.worktreePath
+        ? step.worktreePath
+        : project.originalRootPath
+      const currentBranch = await window.smoothyApi.gitCurrentBranch(effectivePath)
+      const mismatch = step.branchStrategy !== 'worktree'
+        && step.branch !== null
+        && step.branch !== currentBranch
       setBranchStatus(step.id, { currentBranch, loading: false, mismatch })
     } catch {
       setBranchStatus(step.id, { currentBranch: null, loading: false, mismatch: false })
@@ -42,8 +47,17 @@ export function useBranchStatusTracker(steps: TaskFlowStep[]) {
     const unsub = window.smoothyApi.onBranchChanged(({ repoPath, branch }) => {
       for (const step of stepsRef.current) {
         const project = folderProjects.find(p => p.id === step.projectId)
-        if (project && (project.rootPath === repoPath || project.originalRootPath === repoPath)) {
-          const mismatch = step.branch !== null && step.branch !== branch
+        if (!project) continue
+        const matchesMain = project.rootPath === repoPath || project.originalRootPath === repoPath
+        const matchesWorktree = step.worktreePath === repoPath
+        if (matchesMain || matchesWorktree) {
+          const isActivePath = step.branchStrategy === 'worktree' && step.worktreePath
+            ? matchesWorktree
+            : matchesMain
+          if (!isActivePath) continue
+          const mismatch = step.branchStrategy !== 'worktree'
+            && step.branch !== null
+            && step.branch !== branch
           setBranchStatus(step.id, { currentBranch: branch, loading: false, mismatch })
         }
       }

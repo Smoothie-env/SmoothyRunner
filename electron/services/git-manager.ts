@@ -68,19 +68,35 @@ export class GitManager {
     const branchSlug = branch.replace(/\//g, '-')
     const targetPath = worktreePath || path.join(path.dirname(repoPath), `${repoName}--${branchSlug}`)
 
-    // Check if branch exists
+    // Check if local branch exists
+    let branchExists = false
     try {
-      await execFileAsync('git', ['rev-parse', '--verify', branch], { cwd: repoPath })
-      // Branch exists, check it out
-      await execFileAsync('git', ['worktree', 'add', targetPath, branch], { cwd: repoPath })
+      await execFileAsync('git', ['rev-parse', '--verify', `refs/heads/${branch}`], { cwd: repoPath })
+      branchExists = true
     } catch {
-      // Branch doesn't exist, create it
+      // Also check if it exists as a remote tracking branch
+      try {
+        await execFileAsync('git', ['rev-parse', '--verify', `refs/remotes/origin/${branch}`], { cwd: repoPath })
+        branchExists = true
+      } catch {
+        branchExists = false
+      }
+    }
+
+    if (branchExists) {
+      // --force allows checking out a branch that's already checked out in another worktree
+      await execFileAsync('git', ['worktree', 'add', '--force', targetPath, branch], { cwd: repoPath })
+    } else {
       await execFileAsync('git', ['worktree', 'add', targetPath, '-b', branch], { cwd: repoPath })
     }
   }
 
   async checkout(repoPath: string, branch: string): Promise<void> {
     await execFileAsync('git', ['checkout', branch], { cwd: repoPath })
+  }
+
+  async createBranch(repoPath: string, branchName: string): Promise<void> {
+    await execFileAsync('git', ['checkout', '-b', branchName], { cwd: repoPath })
   }
 
   async isDirty(repoPath: string): Promise<boolean> {

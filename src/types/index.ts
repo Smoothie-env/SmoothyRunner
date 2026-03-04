@@ -110,6 +110,7 @@ export interface TaskFlowStep {
   mode: LaunchMode
   profiles: TaskFlowProfileRef[]
   branchStrategy: BranchStrategy
+  worktreePath?: string | null
   portOverride?: number | null
   order: number
 }
@@ -199,6 +200,7 @@ declare global {
 
       // Git — checkout & dirty check
       gitCheckout: (repoPath: string, branch: string) => Promise<void>
+      gitCreateBranch: (repoPath: string, branchName: string) => Promise<void>
       gitIsDirty: (repoPath: string) => Promise<boolean>
       gitStash: (repoPath: string, message?: string) => Promise<void>
       gitStashPop: (repoPath: string) => Promise<void>

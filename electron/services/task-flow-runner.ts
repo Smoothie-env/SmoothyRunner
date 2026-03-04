@@ -54,7 +54,7 @@ export class TaskFlowRunner {
     // Pre-flight: stop all processes from previous flow execution
     for (const step of sortedSteps) {
       if (step.subProjectId) {
-        try { await this.processManager.stop(step.subProjectId) } catch { /* not running */ }
+        try { await this.processManager.stop(step.id) } catch { /* not running */ }
       }
     }
 
@@ -91,7 +91,7 @@ export class TaskFlowRunner {
 
     // Stop existing process for this step before restarting
     if (step.subProjectId) {
-      try { await this.processManager.stop(step.subProjectId) } catch { /* not running */ }
+      try { await this.processManager.stop(step.id) } catch { /* not running */ }
     }
 
     this.sendProgress(flow.id, step.id, 'pending')
@@ -116,7 +116,7 @@ export class TaskFlowRunner {
     // Stop all processes started by this flow's steps
     for (const step of flow.steps) {
       try {
-        await this.processManager.stop(step.subProjectId)
+        await this.processManager.stop(step.id)
       } catch {
         // Process may not be running
       }
@@ -138,9 +138,27 @@ export class TaskFlowRunner {
       return
     }
 
-    // Rescan to get fresh sub-projects
-    const subProjects = await this.scanner.rescanSubProjects(projectConfig.rootPath)
-    const subProject = subProjects.find(sp => sp.id === step.subProjectId)
+    // Resolve effective root path for this step
+    let effectiveRootPath = projectConfig.originalRootPath
+    if (step.branchStrategy === 'worktree' && step.worktreePath) {
+      effectiveRootPath = step.worktreePath
+    }
+
+    // Rescan to get fresh sub-projects from the effective path
+    const subProjects = await this.scanner.rescanSubProjects(effectiveRootPath)
+    let subProject = subProjects.find(sp => sp.id === step.subProjectId)
+
+    // Fallback: ID mismatch due to absolute path difference (main vs worktree)
+    if (!subProject && effectiveRootPath !== projectConfig.originalRootPath) {
+      const canonicalSubs = await this.scanner.rescanSubProjects(projectConfig.originalRootPath)
+      const canonical = canonicalSubs.find(sp => sp.id === step.subProjectId)
+      if (canonical) {
+        subProject = subProjects.find(
+          sp => sp.name === canonical.name && sp.projectType === canonical.projectType
+        )
+      }
+    }
+
     if (!subProject) {
       this.sendProgress(flowId, step.id, 'error', 'Sub-project not found')
       return
@@ -151,17 +169,17 @@ export class TaskFlowRunner {
       return
     }
 
-    // Checkout branch if specified
-    if (step.branch) {
+    // Checkout branch if specified (only for checkout strategy, worktree already has the branch)
+    if (step.branch && step.branchStrategy !== 'worktree') {
       this.sendProgress(flowId, step.id, 'checkout')
       try {
-        const currentBranch = await this.gitManager.currentBranch(projectConfig.rootPath)
+        const currentBranch = await this.gitManager.currentBranch(effectiveRootPath)
         if (currentBranch !== step.branch) {
-          const isDirty = await this.gitManager.isDirty(projectConfig.rootPath)
+          const isDirty = await this.gitManager.isDirty(effectiveRootPath)
           if (isDirty) {
-            await this.gitManager.stash(projectConfig.rootPath, `taskflow: switch to ${step.branch}`)
+            await this.gitManager.stash(effectiveRootPath, `taskflow: switch to ${step.branch}`)
           }
-          await this.gitManager.checkout(projectConfig.rootPath, step.branch)
+          await this.gitManager.checkout(effectiveRootPath, step.branch)
         }
       } catch (err: any) {
         this.sendProgress(flowId, step.id, 'error', `Branch checkout failed: ${err.message}`)
@@ -179,20 +197,24 @@ export class TaskFlowRunner {
       this.sendProgress(flowId, step.id, 'applying-profile')
       for (const profileRef of step.profiles) {
         try {
+          // Remap filePath for worktree: replace originalRootPath prefix with effectiveRootPath
+          const diskFilePath = effectiveRootPath !== projectConfig.originalRootPath
+            ? profileRef.filePath.replace(projectConfig.originalRootPath, effectiveRootPath)
+            : profileRef.filePath
+
           const result = await this.profileManager.applyProfile(
             step.projectId,
-            profileRef.filePath,
+            profileRef.filePath,    // original path for profile lookup in storage
             profileRef.profileName,
             subProject.projectType as ProjectType
           )
           if (result.merged) {
             await this.configFileManager.write(
-              profileRef.filePath,
+              diskFilePath,           // remapped path for disk write
               result.merged,
               subProject.projectType as ProjectType
             )
           } else if (result.error) {
-            // Profile not found — warn but continue
             this.sendProgress(flowId, step.id, 'error', `Profile "${profileRef.profileName}" not found for ${profileRef.filePath}`)
             return
           }
@@ -209,7 +231,7 @@ export class TaskFlowRunner {
 
     // Start process
     this.sendProgress(flowId, step.id, 'starting')
-    const processConfig = this.buildProcessConfig(subProject, step.mode, projectConfig.rootPath, step.portOverride ?? undefined)
+    const processConfig = this.buildProcessConfig(step.id, subProject, step.mode, effectiveRootPath, step.portOverride ?? undefined)
 
     try {
       await this.processManager.start(processConfig)
@@ -236,10 +258,11 @@ export class TaskFlowRunner {
     }
   }
 
-  private buildProcessConfig(subProject: ScannedSubProject, mode: string, rootPath: string, portOverride?: number): ProcessConfig {
+  private buildProcessConfig(stepId: string, subProject: ScannedSubProject, mode: string, rootPath: string, portOverride?: number): ProcessConfig {
+    const effectivePort = portOverride || subProject.port
     return {
-      id: subProject.id,
-      name: subProject.name,
+      id: stepId,
+      name: effectivePort ? `${subProject.name} :${effectivePort}` : subProject.name,
       projectType: subProject.projectType,
       projectPath: subProject.dirPath,
       projectFilePath: subProject.projectType === 'dotnet'

@@ -80,6 +80,7 @@ const smoothyApi = {
 
   // Git — checkout & dirty check
   gitCheckout: (repoPath: string, branch: string) => ipcRenderer.invoke('git:checkout', repoPath, branch),
+  gitCreateBranch: (repoPath: string, branchName: string) => ipcRenderer.invoke('git:createBranch', repoPath, branchName),
   gitIsDirty: (repoPath: string) => ipcRenderer.invoke('git:isDirty', repoPath),
   gitStash: (repoPath: string, message?: string) => ipcRenderer.invoke('git:stash', repoPath, message),
   gitStashPop: (repoPath: string) => ipcRenderer.invoke('git:stashPop', repoPath),
