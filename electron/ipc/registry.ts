@@ -159,6 +159,10 @@ export function registerAllHandlers(mainWindow: BrowserWindow): void {
     return processes.restart(id)
   })
 
+  ipcMain.handle('process:remove', async (_event, id: string) => {
+    return processes.remove(id)
+  })
+
   ipcMain.handle('process:list', async () => {
     return processes.list()
   })

@@ -39,6 +39,7 @@ const smoothyApi = {
   stopProcess: (id: string) => ipcRenderer.invoke('process:stop', id),
   restartProcess: (id: string) => ipcRenderer.invoke('process:restart', id),
   listProcesses: () => ipcRenderer.invoke('process:list'),
+  removeProcess: (id: string) => ipcRenderer.invoke('process:remove', id),
   killPort: (port: number) => ipcRenderer.invoke('process:killPort', port),
 
   // Docker

@@ -20,6 +20,7 @@ interface ProcessState {
   appendProcessLog: (id: string, data: string) => void
   clearProcessLogs: (id: string) => void
   removeProcessLogs: (id: string) => void
+  removeProcess: (id: string) => void
   setBottomPanelOpen: (open: boolean) => void
   setBottomPanelHeight: (h: number) => void
   setActiveProcessTab: (id: string | null) => void
@@ -55,6 +56,23 @@ export const useProcessStore = create<ProcessState>((set) => ({
   removeProcessLogs: (id) => set((s) => {
     const { [id]: _, ...rest } = s.processLogs
     return { processLogs: rest }
+  }),
+
+  removeProcess: (id) => set((s) => {
+    const { [id]: _, ...rest } = s.processLogs
+    const processes = s.processes.filter(p => p.id !== id)
+    const remainingIds = new Set([...Object.keys(rest), ...processes.map(p => p.id)])
+
+    if (remainingIds.size === 0) {
+      return { processLogs: rest, processes, activeProcessTab: null, bottomPanelOpen: false }
+    }
+
+    const needSwitch = s.activeProcessTab === id
+    const activeProcessTab = needSwitch
+      ? Array.from(remainingIds)[0] || null
+      : s.activeProcessTab
+
+    return { processLogs: rest, processes, activeProcessTab }
   }),
 
   setBottomPanelOpen: (open) => set({ bottomPanelOpen: open }),

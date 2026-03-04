@@ -132,6 +132,7 @@ declare global {
       startProcess: (config: unknown) => Promise<ProcessInfo>
       stopProcess: (id: string) => Promise<void>
       restartProcess: (id: string) => Promise<ProcessInfo>
+      removeProcess: (id: string) => Promise<void>
       listProcesses: () => Promise<ProcessInfo[]>
       killPort: (port: number) => Promise<void>
 

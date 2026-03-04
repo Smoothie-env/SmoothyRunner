@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useProcessStore } from '@/stores/processStore'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Trash2, Search, ArrowDown } from 'lucide-react'
+import { Trash2, Search, ArrowDown, Play, Square, RotateCcw, Loader2 } from 'lucide-react'
 
 interface ProcessLogViewerProps {
   processId: string
@@ -12,9 +12,18 @@ export function ProcessLogViewer({ processId }: ProcessLogViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const logs = useProcessStore(s => s.processLogs[processId] ?? [])
   const clearProcessLogs = useProcessStore(s => s.clearProcessLogs)
+  const process = useProcessStore(s => s.processes.find(p => p.id === processId))
   const [autoScroll, setAutoScroll] = useState(true)
   const [searchText, setSearchText] = useState('')
   const [showSearch, setShowSearch] = useState(false)
+  const [actionLoading, setActionLoading] = useState(false)
+
+  const isRunning = process?.status === 'running' || process?.status === 'starting'
+
+  const handleAction = async (action: () => Promise<unknown>) => {
+    setActionLoading(true)
+    try { await action() } finally { setActionLoading(false) }
+  }
 
   useEffect(() => {
     if (autoScroll && containerRef.current) {
@@ -46,6 +55,23 @@ export function ProcessLogViewer({ processId }: ProcessLogViewerProps) {
             className="h-6 text-xs w-[200px]"
             autoFocus
           />
+        )}
+        <div className="w-px h-4 bg-border mx-1" />
+        {actionLoading ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground mx-1" />
+        ) : isRunning ? (
+          <>
+            <Button variant="ghost" size="icon" className="h-6 w-6" title="Restart" onClick={() => handleAction(() => window.smoothyApi.restartProcess(processId))}>
+              <RotateCcw className="h-3.5 w-3.5" />
+            </Button>
+            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive" title="Stop" onClick={() => handleAction(() => window.smoothyApi.stopProcess(processId))}>
+              <Square className="h-3.5 w-3.5" />
+            </Button>
+          </>
+        ) : (
+          <Button variant="ghost" size="icon" className="h-6 w-6 text-success hover:text-success" title="Start" onClick={() => handleAction(() => window.smoothyApi.restartProcess(processId))}>
+            <Play className="h-3.5 w-3.5" />
+          </Button>
         )}
         <div className="flex-1" />
         {!autoScroll && (

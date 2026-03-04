@@ -3,6 +3,7 @@ import { ProcessLogViewer } from './ProcessLogViewer'
 import { Button } from '@/components/ui/button'
 import { X, Circle } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useCallback } from 'react'
 
 export function ProcessPanel() {
   const bottomPanelOpen = useProcessStore(s => s.bottomPanelOpen)
@@ -11,6 +12,13 @@ export function ProcessPanel() {
   const activeProcessTab = useProcessStore(s => s.activeProcessTab)
   const setActiveProcessTab = useProcessStore(s => s.setActiveProcessTab)
   const setBottomPanelOpen = useProcessStore(s => s.setBottomPanelOpen)
+  const removeProcess = useProcessStore(s => s.removeProcess)
+
+  const handleCloseTab = useCallback(async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation()
+    await window.smoothyApi.removeProcess(id)
+    removeProcess(id)
+  }, [removeProcess])
 
   if (!bottomPanelOpen) return null
 
@@ -53,13 +61,19 @@ export function ProcessPanel() {
               <button
                 key={id}
                 className={cn(
-                  'flex items-center gap-1.5 px-3 py-1.5 text-xs whitespace-nowrap border-r shrink-0 transition-colors',
+                  'group flex items-center gap-1.5 px-3 py-1.5 text-xs whitespace-nowrap border-r shrink-0 transition-colors',
                   isActive ? 'bg-zinc-900 text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-zinc-900/50'
                 )}
                 onClick={() => setActiveProcessTab(id)}
               >
                 <Circle className={cn('h-2 w-2', isRunning ? 'fill-success text-success' : 'fill-zinc-600 text-zinc-600')} />
                 {proc?.name || id}
+                <span
+                  className="opacity-0 group-hover:opacity-100 hover:text-destructive transition-opacity ml-1"
+                  onClick={(e) => handleCloseTab(e, id)}
+                >
+                  <X className="h-2.5 w-2.5" />
+                </span>
               </button>
             )
           })}

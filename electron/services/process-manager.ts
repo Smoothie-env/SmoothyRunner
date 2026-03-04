@@ -241,6 +241,11 @@ export class ProcessManager {
     return this.start(config)
   }
 
+  async remove(id: string): Promise<void> {
+    await this.stop(id)
+    this.processes.delete(id)
+  }
+
   list(): ProcessInfo[] {
     return Array.from(this.processes.values()).map(entry => this.toInfo(entry))
   }
