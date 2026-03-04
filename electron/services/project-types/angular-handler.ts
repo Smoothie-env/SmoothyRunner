@@ -26,7 +26,7 @@ export class AngularHandler implements ProjectTypeHandler {
     return dirEntries.includes('angular.json')
   }
 
-  async scan(dirPath: string): Promise<ScannedAngularSubProject[]> {
+  async scan(dirPath: string, rootPath: string): Promise<ScannedAngularSubProject[]> {
     const angularJsonPath = path.join(dirPath, 'angular.json')
     const packageJsonPath = path.join(dirPath, 'package.json')
     const results: ScannedAngularSubProject[] = []
@@ -41,11 +41,11 @@ export class AngularHandler implements ProjectTypeHandler {
         const kind = projectType === 'application' ? 'application' as const : 'library' as const
         const projectRoot = path.join(dirPath, config.root || '')
 
-        const port = config.architect?.serve?.options?.port as number | undefined
+        const port = (config.architect?.serve?.options?.port ?? config.targets?.serve?.options?.port ?? (kind === 'application' ? 4200 : undefined)) as number | undefined
         const configFiles = await this.findEnvironmentFiles(projectRoot, config)
 
         results.push({
-          id: generateId(path.join(angularJsonPath, name)),
+          id: generateId(path.join(path.relative(rootPath, angularJsonPath), name)),
           name,
           projectType: 'angular',
           angularJsonPath,

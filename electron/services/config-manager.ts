@@ -62,6 +62,7 @@ export interface TaskFlowStepConfig {
   mode: 'watch' | 'release' | 'devcontainer'
   profiles: { filePath: string; profileName: string }[]
   branchStrategy: 'checkout' | 'worktree'
+  worktreePath?: string | null
   portOverride?: number | null
   order: number
 }
