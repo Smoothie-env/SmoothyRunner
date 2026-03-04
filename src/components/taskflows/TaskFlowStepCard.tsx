@@ -1,29 +1,32 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import {
-  X, Loader2, Circle, AlertCircle, Eye, Rocket, GitBranch, Minus,
-  Play, Settings, ChevronDown, ChevronRight, Check, AlertTriangle, GitFork, Search, Archive, Filter
+  X, Loader2, Eye, Rocket, GitBranch,
+  Play, Settings, ChevronDown, ChevronRight, Check, AlertTriangle, GitFork, Search, Archive, Filter, GripVertical
 } from 'lucide-react'
 import { Select, SelectItem } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { StepProfilePicker } from './StepProfilePicker'
 import { StepConfigEditor } from './StepConfigEditor'
+import { STATUS_CONFIG } from './stepStatusConfig'
 import { useProjectStore } from '@/stores/projectStore'
 import { cn } from '@/lib/utils'
-import type { TaskFlowStep, TaskFlowStepProgress, StepBranchStatus, SubProject } from '@/types'
+import type { TaskFlowProcessStep, TaskFlowStepProgress, StepBranchStatus, SubProject } from '@/types'
 
 interface TaskFlowStepCardProps {
-  step: TaskFlowStep
+  step: TaskFlowProcessStep
   stepNumber: number
   progress?: TaskFlowStepProgress
   branchStatus?: StepBranchStatus
   expanded: boolean
   flowName: string
-  onChange: (updates: Partial<TaskFlowStep>) => void
+  onChange: (updates: Partial<TaskFlowProcessStep>) => void
   onRemove: () => void
   onToggleExpand: () => void
   onRunStep: () => void
   isExecuting: boolean
+  dragListeners?: Record<string, Function>
+  dragAttributes?: Record<string, any>
 }
 
 function isRunnableSubProject(sp: SubProject): boolean {
@@ -31,19 +34,10 @@ function isRunnableSubProject(sp: SubProject): boolean {
     || (sp.projectType === 'angular' && sp.kind === 'application')
 }
 
-const STATUS_CONFIG: Record<string, { icon: React.ReactNode; label: string; className: string }> = {
-  pending: { icon: <Circle className="h-3 w-3 text-muted-foreground" />, label: 'Pending', className: 'text-muted-foreground' },
-  checkout: { icon: <Loader2 className="h-3 w-3 animate-spin text-orange-400" />, label: 'Switching branch...', className: 'text-orange-400' },
-  'applying-profile': { icon: <Loader2 className="h-3 w-3 animate-spin text-blue-400" />, label: 'Applying config...', className: 'text-blue-400' },
-  starting: { icon: <Loader2 className="h-3 w-3 animate-spin text-yellow-400" />, label: 'Starting...', className: 'text-yellow-400' },
-  running: { icon: <Circle className="h-3 w-3 fill-green-500 text-green-500" />, label: 'Running', className: 'text-green-500' },
-  error: { icon: <AlertCircle className="h-3 w-3 text-destructive" />, label: 'Error', className: 'text-destructive' },
-  skipped: { icon: <Minus className="h-3 w-3 text-muted-foreground" />, label: 'Skipped', className: 'text-muted-foreground' }
-}
-
 export function TaskFlowStepCard({
   step, stepNumber, progress, branchStatus, expanded, flowName,
-  onChange, onRemove, onToggleExpand, onRunStep, isExecuting
+  onChange, onRemove, onToggleExpand, onRunStep, isExecuting,
+  dragListeners, dragAttributes
 }: TaskFlowStepCardProps) {
   const folderProjects = useProjectStore(s => s.folderProjects)
   const updateFolderProject = useProjectStore(s => s.updateFolderProject)
@@ -335,6 +329,18 @@ export function TaskFlowStepCard({
         className="flex items-center gap-2 px-3 py-2 cursor-pointer select-none"
         onClick={onToggleExpand}
       >
+        {/* Drag handle */}
+        {!isExecuting && dragListeners && (
+          <div
+            {...dragListeners}
+            {...dragAttributes}
+            className="cursor-grab active:cursor-grabbing p-1 -ml-1 shrink-0"
+            onClick={e => e.stopPropagation()}
+          >
+            <GripVertical className="h-3.5 w-3.5 text-muted-foreground/50" />
+          </div>
+        )}
+
         {/* Expand chevron */}
         {expanded
           ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
@@ -747,7 +753,7 @@ export function TaskFlowStepCard({
                       <button
                         className={cn(
                           'px-2 py-1 rounded text-[11px] transition-colors',
-                          step.branchStrategy === 'checkout' ? 'bg-zinc-700 text-foreground' : 'text-muted-foreground hover:text-foreground'
+                          step.branchStrategy !== 'worktree' ? 'bg-zinc-700 text-foreground' : 'text-muted-foreground hover:text-foreground'
                         )}
                         onClick={() => onChange({ branchStrategy: 'checkout' })}
                       >

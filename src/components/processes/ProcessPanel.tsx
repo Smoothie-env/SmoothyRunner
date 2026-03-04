@@ -1,4 +1,5 @@
 import { useProcessStore } from '@/stores/processStore'
+import { useTaskFlowStore } from '@/stores/taskFlowStore'
 import { ProcessLogViewer } from './ProcessLogViewer'
 import { Button } from '@/components/ui/button'
 import { X, Circle } from 'lucide-react'
@@ -9,16 +10,21 @@ export function ProcessPanel() {
   const bottomPanelOpen = useProcessStore(s => s.bottomPanelOpen)
   const processLogs = useProcessStore(s => s.processLogs)
   const processes = useProcessStore(s => s.processes)
+  const tabNames = useProcessStore(s => s.tabNames)
   const activeProcessTab = useProcessStore(s => s.activeProcessTab)
   const setActiveProcessTab = useProcessStore(s => s.setActiveProcessTab)
   const setBottomPanelOpen = useProcessStore(s => s.setBottomPanelOpen)
   const removeProcess = useProcessStore(s => s.removeProcess)
+  const stepProgress = useTaskFlowStore(s => s.stepProgress)
 
   const handleCloseTab = useCallback(async (e: React.MouseEvent, id: string) => {
     e.stopPropagation()
-    await window.smoothyApi.removeProcess(id)
+    const proc = processes.find(p => p.id === id)
+    if (proc) {
+      await window.smoothyApi.removeProcess(id)
+    }
     removeProcess(id)
-  }, [removeProcess])
+  }, [removeProcess, processes])
 
   if (!bottomPanelOpen) return null
 
@@ -54,7 +60,11 @@ export function ProcessPanel() {
         <div className="flex items-center flex-1 min-w-0 overflow-x-auto">
           {tabs.map(id => {
             const proc = processes.find(p => p.id === id)
+            const dockerStatus = stepProgress[id]?.status
             const isRunning = proc?.status === 'running'
+              || dockerStatus === 'running' || dockerStatus === 'healthy'
+              || dockerStatus === 'starting' || dockerStatus === 'pulling'
+              || dockerStatus === 'waiting-health'
             const isActive = id === currentTab
 
             return (
@@ -67,7 +77,7 @@ export function ProcessPanel() {
                 onClick={() => setActiveProcessTab(id)}
               >
                 <Circle className={cn('h-2 w-2', isRunning ? 'fill-success text-success' : 'fill-zinc-600 text-zinc-600')} />
-                {proc?.name || id}
+                {tabNames[id] || proc?.name || id}
                 <span
                   className="opacity-0 group-hover:opacity-100 hover:text-destructive transition-opacity ml-1"
                   onClick={(e) => handleCloseTab(e, id)}

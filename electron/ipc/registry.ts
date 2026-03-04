@@ -10,6 +10,7 @@ import { DockerManager } from '../services/docker-manager'
 import { GitManager } from '../services/git-manager'
 import { GitWatcher } from '../services/git-watcher'
 import { TaskFlowRunner } from '../services/task-flow-runner'
+import { StandaloneDockerManager } from '../services/standalone-docker-manager'
 import type { TaskFlowConfig } from '../services/config-manager'
 import type { ProjectType } from '../services/project-types/project-type-handler'
 
@@ -22,7 +23,8 @@ export function registerAllHandlers(mainWindow: BrowserWindow): void {
   const docker = new DockerManager()
   const git = new GitManager()
   const gitWatcher = new GitWatcher(mainWindow)
-  const taskFlowRunner = new TaskFlowRunner(mainWindow, config, profiles, configFileManager, processes, git, scanner)
+  const standaloneDocker = new StandaloneDockerManager()
+  const taskFlowRunner = new TaskFlowRunner(mainWindow, config, profiles, configFileManager, processes, git, scanner, standaloneDocker)
 
   // Dialog
   ipcMain.handle('dialog:selectDirectory', async () => {
@@ -195,6 +197,23 @@ export function registerAllHandlers(mainWindow: BrowserWindow): void {
     return docker.logs(composePath, service)
   })
 
+  // Docker (standalone containers)
+  ipcMain.handle('docker:standaloneStop', async (_event, containerName: string) => {
+    return standaloneDocker.stop(containerName)
+  })
+
+  ipcMain.handle('docker:standaloneRemove', async (_event, containerName: string) => {
+    return standaloneDocker.remove(containerName)
+  })
+
+  ipcMain.handle('docker:standaloneHealth', async (_event, containerName: string) => {
+    return standaloneDocker.healthStatus(containerName)
+  })
+
+  ipcMain.handle('docker:standaloneLogs', async (_event, containerName: string, tail?: number) => {
+    return standaloneDocker.logs(containerName, tail)
+  })
+
   // Git
   ipcMain.handle('git:branches', async (_event, repoPath: string) => {
     return git.listBranches(repoPath)
@@ -292,6 +311,12 @@ export function registerAllHandlers(mainWindow: BrowserWindow): void {
     const flow = await config.getTaskFlow(flowId)
     if (!flow) throw new Error(`Task flow ${flowId} not found`)
     return taskFlowRunner.stopAll(flow)
+  })
+
+  ipcMain.handle('taskflows:stopStep', async (_event, flowId: string, stepId: string) => {
+    const flow = await config.getTaskFlow(flowId)
+    if (!flow) throw new Error(`Task flow ${flowId} not found`)
+    return taskFlowRunner.stopSingleStep(flow, stepId)
   })
 
   // Graceful shutdown

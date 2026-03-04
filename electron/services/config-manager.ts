@@ -53,7 +53,7 @@ export interface TaskFlowConfig {
   updatedAt: string
 }
 
-export interface TaskFlowStepConfig {
+export interface TaskFlowProcessStepConfig {
   id: string
   type: 'process'
   projectId: string
@@ -64,8 +64,27 @@ export interface TaskFlowStepConfig {
   branchStrategy: 'checkout' | 'worktree'
   worktreePath?: string | null
   portOverride?: number | null
+  phase: number
   order: number
 }
+
+export interface TaskFlowDockerStepConfig {
+  id: string
+  type: 'docker'
+  image: string
+  tag: string
+  containerName: string
+  ports: { hostPort: number; containerPort: number }[]
+  env: { key: string; value: string }[]
+  volumes: { hostPath: string; containerPath: string }[]
+  healthCheckEnabled: boolean
+  healthTimeoutSeconds: number
+  phase: number
+  order: number
+  presetId?: string
+}
+
+export type TaskFlowStepConfig = TaskFlowProcessStepConfig | TaskFlowDockerStepConfig
 
 export interface SmoothyConfig {
   folderProjects: FolderProjectConfig[]
@@ -124,7 +143,9 @@ export class ConfigManager {
         ...flow,
         steps: flow.steps.map(step => ({
           ...step,
-          branchStrategy: step.branchStrategy || 'checkout'
+          type: step.type || 'process',
+          branchStrategy: (step as any).branchStrategy || 'checkout',
+          phase: (step as any).phase ?? (step.type === 'docker' ? 0 : 1)
         }))
       }))
 

@@ -93,7 +93,7 @@ export interface Profile {
 }
 
 // Task Flow types
-export type TaskFlowStepType = 'process'
+export type TaskFlowStepType = 'process' | 'docker'
 export type BranchStrategy = 'checkout' | 'worktree'
 
 export interface TaskFlowProfileRef {
@@ -101,9 +101,24 @@ export interface TaskFlowProfileRef {
   profileName: string
 }
 
-export interface TaskFlowStep {
+export interface TaskFlowPortMapping {
+  hostPort: number
+  containerPort: number
+}
+
+export interface TaskFlowEnvVar {
+  key: string
+  value: string
+}
+
+export interface TaskFlowVolumeMapping {
+  hostPath: string
+  containerPath: string
+}
+
+export interface TaskFlowProcessStep {
   id: string
-  type: TaskFlowStepType
+  type: 'process'
   projectId: string
   subProjectId: string
   branch: string | null
@@ -112,8 +127,27 @@ export interface TaskFlowStep {
   branchStrategy: BranchStrategy
   worktreePath?: string | null
   portOverride?: number | null
+  phase: number
   order: number
 }
+
+export interface TaskFlowDockerStep {
+  id: string
+  type: 'docker'
+  image: string
+  tag: string
+  containerName: string
+  ports: TaskFlowPortMapping[]
+  env: TaskFlowEnvVar[]
+  volumes: TaskFlowVolumeMapping[]
+  healthCheckEnabled: boolean
+  healthTimeoutSeconds: number
+  phase: number
+  order: number
+  presetId?: string
+}
+
+export type TaskFlowStep = TaskFlowProcessStep | TaskFlowDockerStep
 
 export interface TaskFlow {
   id: string
@@ -124,7 +158,7 @@ export interface TaskFlow {
 }
 
 // Runtime only (not persisted)
-export type TaskFlowStepStatus = 'pending' | 'checkout' | 'applying-profile' | 'starting' | 'running' | 'error' | 'skipped'
+export type TaskFlowStepStatus = 'pending' | 'checkout' | 'applying-profile' | 'starting' | 'running' | 'error' | 'skipped' | 'pulling' | 'waiting-health' | 'healthy' | 'stopped'
 
 export interface TaskFlowStepProgress {
   stepId: string
@@ -184,12 +218,18 @@ declare global {
       listProcesses: () => Promise<ProcessInfo[]>
       killPort: (port: number) => Promise<void>
 
-      // Docker
+      // Docker (compose)
       dockerStatus: (composePath: string, profiles: string[]) => Promise<DockerContainer[]>
       dockerUp: (composePath: string, services: string[], profiles: string[]) => Promise<void>
       dockerDown: (composePath: string, services: string[], profiles: string[]) => Promise<void>
       dockerRestart: (composePath: string, services: string[], profiles: string[]) => Promise<void>
       dockerLogs: (composePath: string, service: string) => Promise<string>
+
+      // Docker (standalone containers)
+      dockerStandaloneStop: (containerName: string) => Promise<void>
+      dockerStandaloneRemove: (containerName: string) => Promise<void>
+      dockerStandaloneHealth: (containerName: string) => Promise<string>
+      dockerStandaloneLogs: (containerName: string, tail?: number) => Promise<string>
 
       // Git
       gitBranches: (repoPath: string) => Promise<{ local: string[]; remote: string[] }>
@@ -215,6 +255,7 @@ declare global {
       runTaskFlow: (flowId: string) => Promise<void>
       runTaskFlowStep: (flowId: string, stepId: string) => Promise<void>
       stopTaskFlow: (flowId: string) => Promise<void>
+      stopTaskFlowStep: (flowId: string, stepId: string) => Promise<void>
 
       // Events
       onProcessLog: (callback: (data: { id: string; data: string }) => void) => () => void

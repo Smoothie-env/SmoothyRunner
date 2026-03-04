@@ -49,6 +49,12 @@ const smoothyApi = {
   dockerRestart: (composePath: string, services: string[], profiles: string[]) => ipcRenderer.invoke('docker:restart', composePath, services, profiles),
   dockerLogs: (composePath: string, service: string) => ipcRenderer.invoke('docker:logs', composePath, service),
 
+  // Docker (standalone containers)
+  dockerStandaloneStop: (containerName: string) => ipcRenderer.invoke('docker:standaloneStop', containerName),
+  dockerStandaloneRemove: (containerName: string) => ipcRenderer.invoke('docker:standaloneRemove', containerName),
+  dockerStandaloneHealth: (containerName: string) => ipcRenderer.invoke('docker:standaloneHealth', containerName),
+  dockerStandaloneLogs: (containerName: string, tail?: number) => ipcRenderer.invoke('docker:standaloneLogs', containerName, tail),
+
   // Git
   gitBranches: (repoPath: string) => ipcRenderer.invoke('git:branches', repoPath),
   gitCurrentBranch: (repoPath: string) => ipcRenderer.invoke('git:currentBranch', repoPath),
@@ -95,6 +101,7 @@ const smoothyApi = {
   runTaskFlow: (flowId: string) => ipcRenderer.invoke('taskflows:run', flowId),
   runTaskFlowStep: (flowId: string, stepId: string) => ipcRenderer.invoke('taskflows:runStep', flowId, stepId),
   stopTaskFlow: (flowId: string) => ipcRenderer.invoke('taskflows:stop', flowId),
+  stopTaskFlowStep: (flowId: string, stepId: string) => ipcRenderer.invoke('taskflows:stopStep', flowId, stepId),
   onTaskFlowProgress: (callback: (data: { flowId: string; stepId: string; status: string; error?: string }) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, data: { flowId: string; stepId: string; status: string; error?: string }) => callback(data)
     ipcRenderer.on('taskflow:stepProgress', listener)

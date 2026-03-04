@@ -1,11 +1,26 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
-import { Play, Square, Plus, Workflow } from 'lucide-react'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
+import { Play, Square, Plus, Workflow, ChevronDown, Container, GripVertical } from 'lucide-react'
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  closestCenter
+} from '@dnd-kit/core'
+import type { DragStartEvent, DragEndEvent } from '@dnd-kit/core'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { TaskFlowStepCard } from './TaskFlowStepCard'
+import { DockerStepCard } from './DockerStepCard'
+import { PhaseGroup } from './PhaseGroup'
+import { SortableStepWrapper } from './SortableStepWrapper'
 import { useTaskFlowStore } from '@/stores/taskFlowStore'
 import { useBranchStatusTracker } from '@/hooks/useBranchStatusTracker'
-import type { TaskFlow, TaskFlowStep } from '@/types'
+import { groupStepsByPhase, normalizePhases } from '@/lib/phaseUtils'
+import { cn } from '@/lib/utils'
+import type { TaskFlow, TaskFlowStep, TaskFlowProcessStep, TaskFlowDockerStep } from '@/types'
 
 function generateStepId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
@@ -26,15 +41,34 @@ export function TaskFlowEditor() {
   const flow = taskFlows.find(f => f.id === selectedFlowId)
   const [editingName, setEditingName] = useState(false)
   const [name, setName] = useState('')
+  const [addStepOpen, setAddStepOpen] = useState(false)
+  const [activeId, setActiveId] = useState<string | null>(null)
   const nameInputRef = useRef<HTMLInputElement>(null)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const addStepRef = useRef<HTMLDivElement>(null)
 
-  // Track branch statuses for all steps in the active flow
-  useBranchStatusTracker(flow?.steps ?? [])
+  // Track branch statuses for process steps only
+  const processSteps = useMemo(
+    () => (flow?.steps ?? []).filter((s): s is TaskFlowProcessStep => s.type === 'process'),
+    [flow?.steps]
+  )
+  useBranchStatusTracker(processSteps)
+
+  // Group steps by phase (memoized)
+  const phaseGroups = useMemo(
+    () => groupStepsByPhase(flow?.steps ?? []),
+    [flow?.steps]
+  )
 
   useEffect(() => {
     if (flow) setName(flow.name)
   }, [flow?.id])
+
+  // DnD sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor)
+  )
 
   const debouncedSave = useCallback((updates: Partial<TaskFlow>) => {
     if (!flow) return
@@ -71,8 +105,11 @@ export function TaskFlowEditor() {
     }
   }
 
-  const handleAddStep = () => {
-    const newStep: TaskFlowStep = {
+  const handleAddProcessStep = () => {
+    const maxPhase = flow.steps.length > 0
+      ? Math.max(...flow.steps.map(s => s.phase ?? 0))
+      : -1
+    const newStep: TaskFlowProcessStep = {
       id: generateStepId(),
       type: 'process',
       projectId: '',
@@ -82,22 +119,49 @@ export function TaskFlowEditor() {
       profiles: [],
       branchStrategy: 'checkout',
       portOverride: null,
-      order: flow.steps.length
+      phase: maxPhase + 1,
+      order: 0
     }
-    debouncedSave({ steps: [...flow.steps, newStep] })
-    // Auto-expand the new step
+    const updatedSteps = normalizePhases([...flow.steps, newStep])
+    debouncedSave({ steps: updatedSteps })
     toggleStepExpanded(newStep.id)
+    setAddStepOpen(false)
   }
 
-  const handleStepChange = (stepId: string, updates: Partial<TaskFlowStep>) => {
-    const updatedSteps = flow.steps.map(s => s.id === stepId ? { ...s, ...updates } : s)
+  const handleAddDockerStep = () => {
+    const maxPhase = flow.steps.length > 0
+      ? Math.max(...flow.steps.map(s => s.phase ?? 0))
+      : -1
+    const newStep: TaskFlowDockerStep = {
+      id: generateStepId(),
+      type: 'docker',
+      image: '',
+      tag: 'latest',
+      containerName: '',
+      ports: [],
+      env: [],
+      volumes: [],
+      healthCheckEnabled: true,
+      healthTimeoutSeconds: 60,
+      phase: maxPhase + 1,
+      order: 0
+    }
+    const updatedSteps = normalizePhases([...flow.steps, newStep])
+    debouncedSave({ steps: updatedSteps })
+    toggleStepExpanded(newStep.id)
+    setAddStepOpen(false)
+  }
+
+  const handleStepChange = (stepId: string, updates: Partial<TaskFlowProcessStep> | Partial<TaskFlowDockerStep>) => {
+    const updatedSteps = flow.steps.map(s =>
+      s.id === stepId ? { ...s, ...updates } as TaskFlowStep : s
+    )
     debouncedSave({ steps: updatedSteps })
   }
 
   const handleRemoveStep = (stepId: string) => {
-    const updatedSteps = flow.steps
-      .filter(s => s.id !== stepId)
-      .map((s, i) => ({ ...s, order: i }))
+    const filtered = flow.steps.filter(s => s.id !== stepId)
+    const updatedSteps = normalizePhases(filtered)
     debouncedSave({ steps: updatedSteps })
   }
 
@@ -106,6 +170,14 @@ export function TaskFlowEditor() {
       await window.smoothyApi.runTaskFlowStep(flow.id, stepId)
     } catch (err) {
       console.error('Failed to run step:', err)
+    }
+  }
+
+  const handleStopStep = async (stepId: string) => {
+    try {
+      await window.smoothyApi.stopTaskFlowStep(flow.id, stepId)
+    } catch (err) {
+      console.error('Failed to stop step:', err)
     }
   }
 
@@ -126,6 +198,104 @@ export function TaskFlowEditor() {
       console.error('Failed to stop task flow:', err)
     }
     clearProgress()
+  }
+
+  // DnD handlers
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveId(event.active.id as string)
+  }
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    setActiveId(null)
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+
+    const activeStep = flow.steps.find(s => s.id === active.id)
+    if (!activeStep) return
+
+    const overId = over.id as string
+
+    // Case 3: Drop on phase gap → create new phase
+    if (overId.startsWith('phase-gap-')) {
+      const afterPhase = parseInt(overId.replace('phase-gap-', ''), 10)
+      const newPhase = afterPhase + 0.5 // Will be normalized
+      const updatedSteps = flow.steps.map(s =>
+        s.id === activeStep.id ? { ...s, phase: newPhase, order: 0 } : s
+      )
+      debouncedSave({ steps: normalizePhases(updatedSteps) })
+      return
+    }
+
+    // Case 2: Drop on phase group → move step to that phase
+    if (overId.startsWith('phase-')) {
+      const targetPhase = parseInt(overId.replace('phase-', ''), 10)
+      if (activeStep.phase === targetPhase) return
+      const phaseSteps = flow.steps.filter(s => s.phase === targetPhase)
+      const updatedSteps = flow.steps.map(s =>
+        s.id === activeStep.id ? { ...s, phase: targetPhase, order: phaseSteps.length } : s
+      )
+      debouncedSave({ steps: normalizePhases(updatedSteps) })
+      return
+    }
+
+    // Case 1: Drop on another step → reorder
+    const overStep = flow.steps.find(s => s.id === overId)
+    if (!overStep) return
+
+    if (activeStep.phase === overStep.phase) {
+      // Same phase: reorder within
+      const group = phaseGroups.find(g => g.phase === activeStep.phase)
+      if (!group) return
+      const ids = group.steps.map(s => s.id)
+      const oldIndex = ids.indexOf(activeStep.id)
+      const newIndex = ids.indexOf(overStep.id)
+      if (oldIndex === -1 || newIndex === -1) return
+
+      const reordered = [...ids]
+      reordered.splice(oldIndex, 1)
+      reordered.splice(newIndex, 0, activeStep.id)
+
+      const updatedSteps = flow.steps.map(s => {
+        const idx = reordered.indexOf(s.id)
+        if (idx !== -1 && s.phase === activeStep.phase) {
+          return { ...s, order: idx }
+        }
+        return s
+      })
+      debouncedSave({ steps: normalizePhases(updatedSteps) })
+    } else {
+      // Different phase: move to target step's phase
+      const targetPhase = overStep.phase
+      const phaseSteps = flow.steps.filter(s => s.phase === targetPhase && s.id !== activeStep.id)
+      const overIndex = phaseSteps.findIndex(s => s.id === overStep.id)
+      const updatedSteps = flow.steps.map(s => {
+        if (s.id === activeStep.id) {
+          return { ...s, phase: targetPhase, order: overIndex >= 0 ? overIndex : phaseSteps.length }
+        }
+        return s
+      })
+      debouncedSave({ steps: normalizePhases(updatedSteps) })
+    }
+  }
+
+  const handleDragCancel = () => {
+    setActiveId(null)
+  }
+
+  const activeStep = activeId ? flow.steps.find(s => s.id === activeId) : null
+
+  // Compute global step number for display
+  const allSortedSteps = useMemo(() => {
+    const result: TaskFlowStep[] = []
+    for (const group of phaseGroups) {
+      result.push(...group.steps)
+    }
+    return result
+  }, [phaseGroups])
+
+  const getStepNumber = (stepId: string) => {
+    const idx = allSortedSteps.findIndex(s => s.id === stepId)
+    return idx >= 0 ? idx + 1 : 0
   }
 
   return (
@@ -174,7 +344,9 @@ export function TaskFlowEditor() {
             <Button
               size="sm"
               onClick={handleRun}
-              disabled={flow.steps.length === 0 || flow.steps.every(s => !s.subProjectId)}
+              disabled={flow.steps.length === 0 || flow.steps.every(s =>
+                s.type === 'process' ? !s.subProjectId : s.type === 'docker' ? !s.image : true
+              )}
             >
               <Play className="h-3.5 w-3.5 mr-1" />
               Run All
@@ -185,7 +357,7 @@ export function TaskFlowEditor() {
 
       {/* Steps list */}
       <ScrollArea className="flex-1 p-4">
-        <div className="max-w-2xl mx-auto space-y-2">
+        <div className="max-w-2xl mx-auto">
           {flow.steps.length === 0 ? (
             <div className="text-center py-12">
               <Workflow className="h-10 w-10 text-muted-foreground/20 mx-auto mb-3" />
@@ -193,46 +365,130 @@ export function TaskFlowEditor() {
               <p className="text-xs text-muted-foreground/60 mb-4">
                 Add steps to define which services to start, on which branches, with which profiles
               </p>
-              <Button variant="outline" size="sm" onClick={handleAddStep}>
-                <Plus className="h-3.5 w-3.5 mr-1" />
-                Add Step
-              </Button>
-            </div>
-          ) : (
-            <>
-              {flow.steps
-                .slice()
-                .sort((a, b) => a.order - b.order)
-                .map((step, i) => (
-                  <TaskFlowStepCard
-                    key={step.id}
-                    step={step}
-                    stepNumber={i + 1}
-                    progress={stepProgress[step.id]}
-                    branchStatus={branchStatuses[step.id]}
-                    expanded={expandedStepIds.has(step.id)}
-                    flowName={flow.name}
-                    onChange={(updates) => handleStepChange(step.id, updates)}
-                    onRemove={() => handleRemoveStep(step.id)}
-                    onToggleExpand={() => toggleStepExpanded(step.id)}
-                    onRunStep={() => handleRunStep(step.id)}
-                    isExecuting={isRunning}
-                  />
-                ))}
-
-              {/* Add step button */}
-              {!isRunning && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full border-dashed"
-                  onClick={handleAddStep}
-                >
+              <div className="relative inline-block" ref={addStepRef}>
+                <Button variant="outline" size="sm" onClick={() => setAddStepOpen(!addStepOpen)}>
                   <Plus className="h-3.5 w-3.5 mr-1" />
                   Add Step
+                  <ChevronDown className="h-3 w-3 ml-1" />
                 </Button>
+                {addStepOpen && (
+                  <div className="absolute left-1/2 -translate-x-1/2 top-full z-50 mt-1 w-48 rounded-md border bg-popover shadow-md p-1">
+                    <button className="w-full text-left px-2 py-1.5 rounded text-xs hover:bg-accent transition-colors flex items-center gap-2" onClick={handleAddProcessStep}>
+                      <Play className="h-3 w-3" /> Process Step
+                    </button>
+                    <button className="w-full text-left px-2 py-1.5 rounded text-xs hover:bg-accent transition-colors flex items-center gap-2" onClick={handleAddDockerStep}>
+                      <Container className="h-3 w-3" /> Docker Container
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragStart={handleDragStart}
+              onDragEnd={handleDragEnd}
+              onDragCancel={handleDragCancel}
+            >
+              <div className="space-y-0">
+                {phaseGroups.map((group, gi) => (
+                  <PhaseGroup
+                    key={group.phase}
+                    phase={group.phase}
+                    steps={group.steps}
+                    stepProgress={stepProgress}
+                    isLast={gi === phaseGroups.length - 1}
+                  >
+                    {group.steps.map((step) => (
+                      <SortableStepWrapper key={step.id} id={step.id} disabled={isRunning}>
+                        {({ listeners, attributes }) => (
+                          step.type === 'docker' ? (
+                            <DockerStepCard
+                              step={step}
+                              stepNumber={getStepNumber(step.id)}
+                              progress={stepProgress[step.id]}
+                              expanded={expandedStepIds.has(step.id)}
+                              onChange={(updates) => handleStepChange(step.id, updates)}
+                              onRemove={() => handleRemoveStep(step.id)}
+                              onToggleExpand={() => toggleStepExpanded(step.id)}
+                              onRunStep={() => handleRunStep(step.id)}
+                              onStopStep={() => handleStopStep(step.id)}
+                              isExecuting={isRunning}
+                              dragListeners={listeners}
+                              dragAttributes={attributes}
+                            />
+                          ) : (
+                            <TaskFlowStepCard
+                              step={step}
+                              stepNumber={getStepNumber(step.id)}
+                              progress={stepProgress[step.id]}
+                              branchStatus={branchStatuses[step.id]}
+                              expanded={expandedStepIds.has(step.id)}
+                              flowName={flow.name}
+                              onChange={(updates) => handleStepChange(step.id, updates)}
+                              onRemove={() => handleRemoveStep(step.id)}
+                              onToggleExpand={() => toggleStepExpanded(step.id)}
+                              onRunStep={() => handleRunStep(step.id)}
+                              isExecuting={isRunning}
+                              dragListeners={listeners}
+                              dragAttributes={attributes}
+                            />
+                          )
+                        )}
+                      </SortableStepWrapper>
+                    ))}
+                  </PhaseGroup>
+                ))}
+              </div>
+
+              {/* Drag overlay — collapsed preview */}
+              <DragOverlay>
+                {activeStep && (
+                  <div className="rounded-lg border bg-card shadow-lg opacity-90 px-3 py-2 flex items-center gap-2">
+                    <GripVertical className="h-3.5 w-3.5 text-muted-foreground/50" />
+                    {activeStep.type === 'docker' ? (
+                      <>
+                        <Container className="h-3.5 w-3.5 text-blue-400" />
+                        <span className="text-sm font-medium">
+                          {activeStep.image ? `${activeStep.image}:${activeStep.tag || 'latest'}` : 'Docker'}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-sm font-medium">
+                        {activeStep.subProjectId || 'Process Step'}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </DragOverlay>
+            </DndContext>
+          )}
+
+          {/* Add step button */}
+          {flow.steps.length > 0 && !isRunning && (
+            <div className="relative mt-4">
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full border-dashed"
+                onClick={() => setAddStepOpen(!addStepOpen)}
+              >
+                <Plus className="h-3.5 w-3.5 mr-1" />
+                Add Step
+                <ChevronDown className="h-3 w-3 ml-1" />
+              </Button>
+              {addStepOpen && (
+                <div className="absolute left-1/2 -translate-x-1/2 bottom-full z-50 mb-1 w-48 rounded-md border bg-popover shadow-md p-1">
+                  <button className="w-full text-left px-2 py-1.5 rounded text-xs hover:bg-accent transition-colors flex items-center gap-2" onClick={handleAddProcessStep}>
+                    <Play className="h-3 w-3" /> Process Step
+                  </button>
+                  <button className="w-full text-left px-2 py-1.5 rounded text-xs hover:bg-accent transition-colors flex items-center gap-2" onClick={handleAddDockerStep}>
+                    <Container className="h-3 w-3" /> Docker Container
+                  </button>
+                </div>
               )}
-            </>
+            </div>
           )}
         </div>
       </ScrollArea>

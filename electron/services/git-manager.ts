@@ -4,6 +4,31 @@ import path from 'path'
 
 const execFileAsync = promisify(execFile)
 
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+async function execWithRetry(
+  cmd: string,
+  args: string[],
+  opts: { cwd?: string },
+  retries = 3,
+  backoff = 200
+): Promise<{ stdout: string; stderr: string }> {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await execFileAsync(cmd, args, opts)
+    } catch (err: any) {
+      if (err.code === 'EAGAIN' && attempt < retries) {
+        await delay(backoff * (attempt + 1))
+        continue
+      }
+      throw err
+    }
+  }
+  throw new Error('execWithRetry: exhausted retries')
+}
+
 export interface Worktree {
   path: string
   branch: string
@@ -14,13 +39,13 @@ export interface Worktree {
 
 export class GitManager {
   async currentBranch(repoPath: string): Promise<string> {
-    const { stdout } = await execFileAsync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: repoPath })
+    const { stdout } = await execWithRetry('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: repoPath })
     return stdout.trim()
   }
 
   async listBranches(repoPath: string): Promise<{ local: string[]; remote: string[] }> {
-    const { stdout: localOutput } = await execFileAsync('git', ['branch', '--format=%(refname:short)'], { cwd: repoPath })
-    const { stdout: remoteOutput } = await execFileAsync('git', ['branch', '-r', '--format=%(refname:short)'], { cwd: repoPath })
+    const { stdout: localOutput } = await execWithRetry('git', ['branch', '--format=%(refname:short)'], { cwd: repoPath })
+    const { stdout: remoteOutput } = await execWithRetry('git', ['branch', '-r', '--format=%(refname:short)'], { cwd: repoPath })
 
     return {
       local: localOutput.trim().split('\n').filter(Boolean),
@@ -29,7 +54,7 @@ export class GitManager {
   }
 
   async worktreeList(repoPath: string): Promise<Worktree[]> {
-    const { stdout } = await execFileAsync('git', ['worktree', 'list', '--porcelain'], { cwd: repoPath })
+    const { stdout } = await execWithRetry('git', ['worktree', 'list', '--porcelain'], { cwd: repoPath })
     const worktrees: Worktree[] = []
     let current: Partial<Worktree> = {}
 
@@ -71,12 +96,12 @@ export class GitManager {
     // Check if local branch exists
     let branchExists = false
     try {
-      await execFileAsync('git', ['rev-parse', '--verify', `refs/heads/${branch}`], { cwd: repoPath })
+      await execWithRetry('git', ['rev-parse', '--verify', `refs/heads/${branch}`], { cwd: repoPath })
       branchExists = true
     } catch {
       // Also check if it exists as a remote tracking branch
       try {
-        await execFileAsync('git', ['rev-parse', '--verify', `refs/remotes/origin/${branch}`], { cwd: repoPath })
+        await execWithRetry('git', ['rev-parse', '--verify', `refs/remotes/origin/${branch}`], { cwd: repoPath })
         branchExists = true
       } catch {
         branchExists = false
@@ -85,27 +110,27 @@ export class GitManager {
 
     if (branchExists) {
       // --force allows checking out a branch that's already checked out in another worktree
-      await execFileAsync('git', ['worktree', 'add', '--force', targetPath, branch], { cwd: repoPath })
+      await execWithRetry('git', ['worktree', 'add', '--force', targetPath, branch], { cwd: repoPath })
     } else {
-      await execFileAsync('git', ['worktree', 'add', targetPath, '-b', branch], { cwd: repoPath })
+      await execWithRetry('git', ['worktree', 'add', targetPath, '-b', branch], { cwd: repoPath })
     }
   }
 
   async checkout(repoPath: string, branch: string): Promise<void> {
-    await execFileAsync('git', ['checkout', branch], { cwd: repoPath })
+    await execWithRetry('git', ['checkout', branch], { cwd: repoPath })
   }
 
   async createBranch(repoPath: string, branchName: string): Promise<void> {
-    await execFileAsync('git', ['checkout', '-b', branchName], { cwd: repoPath })
+    await execWithRetry('git', ['checkout', '-b', branchName], { cwd: repoPath })
   }
 
   async isDirty(repoPath: string): Promise<boolean> {
-    const { stdout } = await execFileAsync('git', ['status', '--porcelain'], { cwd: repoPath })
+    const { stdout } = await execWithRetry('git', ['status', '--porcelain'], { cwd: repoPath })
     return stdout.trim().length > 0
   }
 
   async dirtyCount(repoPath: string): Promise<number> {
-    const { stdout } = await execFileAsync('git', ['status', '--porcelain'], { cwd: repoPath })
+    const { stdout } = await execWithRetry('git', ['status', '--porcelain'], { cwd: repoPath })
     const lines = stdout.trim().split('\n').filter(Boolean)
     return lines.length
   }
@@ -113,19 +138,19 @@ export class GitManager {
   async stash(repoPath: string, message?: string): Promise<void> {
     const args = ['stash', 'push', '--include-untracked']
     if (message) args.push('-m', message)
-    await execFileAsync('git', args, { cwd: repoPath })
+    await execWithRetry('git', args, { cwd: repoPath })
   }
 
   async stashPop(repoPath: string): Promise<void> {
-    await execFileAsync('git', ['stash', 'pop'], { cwd: repoPath })
+    await execWithRetry('git', ['stash', 'pop'], { cwd: repoPath })
   }
 
   async worktreeRemove(worktreePath: string): Promise<void> {
     // Find the main repo from the worktree
-    const { stdout } = await execFileAsync('git', ['rev-parse', '--git-common-dir'], { cwd: worktreePath })
+    const { stdout } = await execWithRetry('git', ['rev-parse', '--git-common-dir'], { cwd: worktreePath })
     const gitDir = stdout.trim()
     const repoPath = path.dirname(gitDir)
 
-    await execFileAsync('git', ['worktree', 'remove', worktreePath, '--force'], { cwd: repoPath })
+    await execWithRetry('git', ['worktree', 'remove', worktreePath, '--force'], { cwd: repoPath })
   }
 }

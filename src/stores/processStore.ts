@@ -9,6 +9,7 @@ interface ProcessState {
   dockerContainers: DockerContainer[]
   activeLogId: string | null
   processLogs: Record<string, string[]>
+  tabNames: Record<string, string>
   bottomPanelOpen: boolean
   bottomPanelHeight: number
   activeProcessTab: string | null
@@ -24,6 +25,7 @@ interface ProcessState {
   setBottomPanelOpen: (open: boolean) => void
   setBottomPanelHeight: (h: number) => void
   setActiveProcessTab: (id: string | null) => void
+  setTabName: (id: string, name: string) => void
 }
 
 export const useProcessStore = create<ProcessState>((set) => ({
@@ -31,6 +33,7 @@ export const useProcessStore = create<ProcessState>((set) => ({
   dockerContainers: [],
   activeLogId: null,
   processLogs: {},
+  tabNames: {},
   bottomPanelOpen: false,
   bottomPanelHeight: DEFAULT_PANEL_HEIGHT,
   activeProcessTab: null,
@@ -60,11 +63,12 @@ export const useProcessStore = create<ProcessState>((set) => ({
 
   removeProcess: (id) => set((s) => {
     const { [id]: _, ...rest } = s.processLogs
+    const { [id]: _name, ...restNames } = s.tabNames
     const processes = s.processes.filter(p => p.id !== id)
     const remainingIds = new Set([...Object.keys(rest), ...processes.map(p => p.id)])
 
     if (remainingIds.size === 0) {
-      return { processLogs: rest, processes, activeProcessTab: null, bottomPanelOpen: false }
+      return { processLogs: rest, tabNames: restNames, processes, activeProcessTab: null, bottomPanelOpen: false }
     }
 
     const needSwitch = s.activeProcessTab === id
@@ -72,12 +76,16 @@ export const useProcessStore = create<ProcessState>((set) => ({
       ? Array.from(remainingIds)[0] || null
       : s.activeProcessTab
 
-    return { processLogs: rest, processes, activeProcessTab }
+    return { processLogs: rest, tabNames: restNames, processes, activeProcessTab }
   }),
 
   setBottomPanelOpen: (open) => set({ bottomPanelOpen: open }),
 
   setBottomPanelHeight: (h) => set({ bottomPanelHeight: Math.min(500, Math.max(100, h)) }),
 
-  setActiveProcessTab: (id) => set({ activeProcessTab: id })
+  setActiveProcessTab: (id) => set({ activeProcessTab: id }),
+
+  setTabName: (id, name) => set((s) => ({
+    tabNames: { ...s.tabNames, [id]: name }
+  }))
 }))

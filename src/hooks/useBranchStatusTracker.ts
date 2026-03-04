@@ -1,15 +1,16 @@
 import { useEffect, useCallback, useRef } from 'react'
 import { useProjectStore } from '@/stores/projectStore'
 import { useTaskFlowStore } from '@/stores/taskFlowStore'
-import type { TaskFlowStep } from '@/types'
+import type { TaskFlowProcessStep } from '@/types'
 
-export function useBranchStatusTracker(steps: TaskFlowStep[]) {
+export function useBranchStatusTracker(steps: TaskFlowProcessStep[]) {
   const folderProjects = useProjectStore(s => s.folderProjects)
   const setBranchStatus = useTaskFlowStore(s => s.setBranchStatus)
   const stepsRef = useRef(steps)
   stepsRef.current = steps
+  const runningRef = useRef(false)
 
-  const checkStep = useCallback(async (step: TaskFlowStep) => {
+  const checkStep = useCallback(async (step: TaskFlowProcessStep) => {
     const project = folderProjects.find(p => p.id === step.projectId)
     if (!project) return
 
@@ -29,11 +30,18 @@ export function useBranchStatusTracker(steps: TaskFlowStep[]) {
     }
   }, [folderProjects, setBranchStatus])
 
-  const refresh = useCallback(() => {
-    for (const step of stepsRef.current) {
-      if (step.projectId) {
-        checkStep(step)
+  // Sequential refresh — one git call at a time to avoid EAGAIN
+  const refresh = useCallback(async () => {
+    if (runningRef.current) return
+    runningRef.current = true
+    try {
+      for (const step of stepsRef.current) {
+        if (step.projectId) {
+          await checkStep(step)
+        }
       }
+    } finally {
+      runningRef.current = false
     }
   }, [checkStep])
 
