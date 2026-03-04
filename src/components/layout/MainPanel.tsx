@@ -1,10 +1,12 @@
 import { useEffect } from 'react'
 import { useProjectStore } from '@/stores/projectStore'
+import { useTaskFlowStore } from '@/stores/taskFlowStore'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { SettingsTree } from '@/components/appsettings/SettingsTree'
 import { ServicePanel } from '@/components/services/ServicePanel'
 import { DockerPanel } from '@/components/docker/DockerPanel'
 import { ProjectFileViewer } from '@/components/projects/ProjectFileViewer'
+import { TaskFlowEditor } from '@/components/taskflows/TaskFlowEditor'
 import { FileCode, FileJson, Play, Container, Zap } from 'lucide-react'
 import type { ViewTab, SubProject } from '@/types'
 
@@ -19,6 +21,7 @@ export function MainPanel() {
   const activeSubProject = useProjectStore(s => s.activeSubProject())
   const activeTab = useProjectStore(s => s.activeTab)
   const setActiveTab = useProjectStore(s => s.setActiveTab)
+  const selectedFlowId = useTaskFlowStore(s => s.selectedFlowId)
 
   // Determine available tabs based on selection
   const availableTabs: ViewTab[] = []
@@ -41,7 +44,9 @@ export function MainPanel() {
   }
 
   // Auto-select default tab when selection changes
+  const selectionKey = selection?.type === 'subproject' ? (selection as any).subProjectId : selection?.projectId
   useEffect(() => {
+    if (selectedFlowId) return
     if (availableTabs.length === 0) return
     if (availableTabs.includes(activeTab)) return
 
@@ -52,7 +57,12 @@ export function MainPanel() {
     } else {
       setActiveTab(availableTabs[0])
     }
-  }, [selection?.type === 'subproject' ? (selection as any).subProjectId : selection?.projectId])
+  }, [selectionKey, selectedFlowId])
+
+  // Task Flow editor takes priority
+  if (selectedFlowId) {
+    return <TaskFlowEditor />
+  }
 
   // Welcome screen
   if (!selection) {

@@ -45,10 +45,32 @@ export interface ProjectProfileData {
   files: Record<string, FileProfileData>
 }
 
+export interface TaskFlowConfig {
+  id: string
+  name: string
+  steps: TaskFlowStepConfig[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface TaskFlowStepConfig {
+  id: string
+  type: 'process'
+  projectId: string
+  subProjectId: string
+  branch: string | null
+  mode: 'watch' | 'release' | 'devcontainer'
+  profiles: { filePath: string; profileName: string }[]
+  branchStrategy: 'checkout' | 'worktree'
+  portOverride?: number | null
+  order: number
+}
+
 export interface SmoothyConfig {
   folderProjects: FolderProjectConfig[]
   profiles: Record<string, ProjectProfileData>
   groups: ProjectGroup[]
+  taskFlows: TaskFlowConfig[]
 }
 
 interface LegacySmoothyConfig {
@@ -97,14 +119,23 @@ export class ConfigManager {
         }
       }
 
+      const taskFlows: TaskFlowConfig[] = ((raw as any).taskFlows || []).map((flow: TaskFlowConfig) => ({
+        ...flow,
+        steps: flow.steps.map(step => ({
+          ...step,
+          branchStrategy: step.branchStrategy || 'checkout'
+        }))
+      }))
+
       this.config = {
         folderProjects: raw.folderProjects || [],
         profiles: migratedProfiles,
-        groups: (raw as any).groups || []
+        groups: (raw as any).groups || [],
+        taskFlows
       }
       return this.config
     } catch {
-      this.config = { folderProjects: [], profiles: {}, groups: [] }
+      this.config = { folderProjects: [], profiles: {}, groups: [], taskFlows: [] }
       return this.config
     }
   }
@@ -138,7 +169,8 @@ export class ConfigManager {
     return {
       folderProjects,
       profiles: raw.profiles || {},
-      groups: []
+      groups: [],
+      taskFlows: []
     }
   }
 
@@ -296,6 +328,38 @@ export class ConfigManager {
       project.groupId = groupId || undefined
       await this.save()
     }
+  }
+
+  // Task Flows CRUD
+  async listTaskFlows(): Promise<TaskFlowConfig[]> {
+    const config = await this.load()
+    return config.taskFlows
+  }
+
+  async getTaskFlow(id: string): Promise<TaskFlowConfig | undefined> {
+    const config = await this.load()
+    return config.taskFlows.find(f => f.id === id)
+  }
+
+  async addTaskFlow(flow: TaskFlowConfig): Promise<void> {
+    const config = await this.load()
+    config.taskFlows.push(flow)
+    await this.save()
+  }
+
+  async updateTaskFlow(id: string, updates: Partial<TaskFlowConfig>): Promise<void> {
+    const config = await this.load()
+    const index = config.taskFlows.findIndex(f => f.id === id)
+    if (index >= 0) {
+      config.taskFlows[index] = { ...config.taskFlows[index], ...updates, updatedAt: new Date().toISOString() }
+      await this.save()
+    }
+  }
+
+  async removeTaskFlow(id: string): Promise<void> {
+    const config = await this.load()
+    config.taskFlows = config.taskFlows.filter(f => f.id !== id)
+    await this.save()
   }
 
   private generateId(filePath: string): string {

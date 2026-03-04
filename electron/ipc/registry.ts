@@ -9,6 +9,8 @@ import { ProcessManager } from '../services/process-manager'
 import { DockerManager } from '../services/docker-manager'
 import { GitManager } from '../services/git-manager'
 import { GitWatcher } from '../services/git-watcher'
+import { TaskFlowRunner } from '../services/task-flow-runner'
+import type { TaskFlowConfig } from '../services/config-manager'
 import type { ProjectType } from '../services/project-types/project-type-handler'
 
 export function registerAllHandlers(mainWindow: BrowserWindow): void {
@@ -20,6 +22,7 @@ export function registerAllHandlers(mainWindow: BrowserWindow): void {
   const docker = new DockerManager()
   const git = new GitManager()
   const gitWatcher = new GitWatcher(mainWindow)
+  const taskFlowRunner = new TaskFlowRunner(mainWindow, config, profiles, configFileManager, processes, git, scanner)
 
   // Dialog
   ipcMain.handle('dialog:selectDirectory', async () => {
@@ -227,6 +230,60 @@ export function registerAllHandlers(mainWindow: BrowserWindow): void {
 
   ipcMain.handle('git:stashPop', async (_event, repoPath: string) => {
     return git.stashPop(repoPath)
+  })
+
+  // Task Flows
+  ipcMain.handle('taskflows:list', async () => {
+    return config.listTaskFlows()
+  })
+
+  ipcMain.handle('taskflows:get', async (_event, id: string) => {
+    return config.getTaskFlow(id) || null
+  })
+
+  ipcMain.handle('taskflows:add', async (_event, flow: TaskFlowConfig) => {
+    return config.addTaskFlow(flow)
+  })
+
+  ipcMain.handle('taskflows:update', async (_event, id: string, updates: Partial<TaskFlowConfig>) => {
+    return config.updateTaskFlow(id, updates)
+  })
+
+  ipcMain.handle('taskflows:remove', async (_event, id: string) => {
+    return config.removeTaskFlow(id)
+  })
+
+  ipcMain.handle('taskflows:runStep', async (_event, flowId: string, stepId: string) => {
+    const flow = await config.getTaskFlow(flowId)
+    if (!flow) throw new Error(`Task flow ${flowId} not found`)
+    taskFlowRunner.runSingleStep(flow, stepId).catch(err => {
+      mainWindow.webContents.send('taskflow:stepProgress', {
+        flowId,
+        stepId,
+        status: 'error',
+        error: err.message
+      })
+    })
+  })
+
+  ipcMain.handle('taskflows:run', async (_event, flowId: string) => {
+    const flow = await config.getTaskFlow(flowId)
+    if (!flow) throw new Error(`Task flow ${flowId} not found`)
+    // Run in background — don't await
+    taskFlowRunner.run(flow).catch(err => {
+      mainWindow.webContents.send('taskflow:stepProgress', {
+        flowId,
+        stepId: '__flow__',
+        status: 'error',
+        error: err.message
+      })
+    })
+  })
+
+  ipcMain.handle('taskflows:stop', async (_event, flowId: string) => {
+    const flow = await config.getTaskFlow(flowId)
+    if (!flow) throw new Error(`Task flow ${flowId} not found`)
+    return taskFlowRunner.stopAll(flow)
   })
 
   // Graceful shutdown

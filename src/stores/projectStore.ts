@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { FolderProject, SubProject, SidebarSelection, ViewTab, ProjectGroup } from '@/types'
+import type { FolderProject, SubProject, SidebarSelection, ViewTab, ProjectGroup, SidebarView } from '@/types'
 
 interface ProjectState {
   folderProjects: FolderProject[]
@@ -14,8 +14,10 @@ interface ProjectState {
   projectFileContent: string | null
   projectFileLoading: boolean
   projectFileDirty: boolean
+  sidebarView: SidebarView
   expandedProjects: Set<string>
 
+  setSidebarView: (view: SidebarView) => void
   setFolderProjects: (projects: FolderProject[]) => void
   addFolderProject: (project: FolderProject) => void
   removeFolderProject: (id: string) => void
@@ -53,8 +55,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   projectFileContent: null,
   projectFileLoading: false,
   projectFileDirty: false,
+  sidebarView: 'projects',
   expandedProjects: new Set<string>(),
 
+  setSidebarView: (sidebarView) => set({ sidebarView }),
   setFolderProjects: (folderProjects) => set({ folderProjects }),
   setGroups: (groups) => set({ groups }),
   addGroup: (group) => set((s) => ({ groups: [...s.groups, group] })),
