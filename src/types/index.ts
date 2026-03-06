@@ -149,12 +149,45 @@ export interface TaskFlowDockerStep {
 
 export type TaskFlowStep = TaskFlowProcessStep | TaskFlowDockerStep
 
+// Compose import types
+export interface ComposeServiceMapping {
+  type: 'docker' | 'project'
+  projectId?: string
+  subProjectId?: string
+}
+
+export interface ComposeSourceConfig {
+  filePath: string
+  lastSyncHash: string
+  serviceMappings: Record<string, ComposeServiceMapping>
+}
+
+export interface ComposeService {
+  name: string
+  image?: string
+  build?: { context?: string; dockerfile?: string }
+  ports: { hostPort: number; containerPort: number }[]
+  environment: { key: string; value: string }[]
+  volumes: { hostPath: string; containerPath: string }[]
+  dependsOn: string[]
+  hasHealthcheck: boolean
+  containerName?: string
+}
+
+export interface ComposeParseResult {
+  filePath: string
+  fileHash: string
+  services: ComposeService[]
+  phases: Record<string, number>
+}
+
 export interface TaskFlow {
   id: string
   name: string
   steps: TaskFlowStep[]
   createdAt: string
   updatedAt: string
+  composeSource?: ComposeSourceConfig
 }
 
 // Runtime only (not persisted)
@@ -256,6 +289,14 @@ declare global {
       runTaskFlowStep: (flowId: string, stepId: string) => Promise<void>
       stopTaskFlow: (flowId: string) => Promise<void>
       stopTaskFlowStep: (flowId: string, stepId: string) => Promise<void>
+      runTaskFlowPhase: (flowId: string, phaseNumber: number) => Promise<void>
+      stopTaskFlowPhase: (flowId: string, phaseNumber: number) => Promise<void>
+
+      // Compose import
+      parseCompose: () => Promise<ComposeParseResult | null>
+      parseComposeFile: (filePath: string) => Promise<ComposeParseResult>
+      checkComposeSync: (filePath: string, lastHash: string) => Promise<{ changed: boolean; currentHash: string }>
+      flattenAppsettings: (appsettingsPath: string) => Promise<string[]>
 
       // Events
       onProcessLog: (callback: (data: { id: string; data: string }) => void) => () => void

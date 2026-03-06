@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
-import { Play, Square, Plus, Workflow, ChevronDown, Container, GripVertical } from 'lucide-react'
+import { Play, Square, Plus, Workflow, ChevronDown, Container, GripVertical, FileUp, AlertTriangle, RefreshCw } from 'lucide-react'
 import {
   DndContext,
   DragOverlay,
@@ -16,11 +16,12 @@ import { TaskFlowStepCard } from './TaskFlowStepCard'
 import { DockerStepCard } from './DockerStepCard'
 import { PhaseGroup } from './PhaseGroup'
 import { SortableStepWrapper } from './SortableStepWrapper'
+import { ComposeImportDialog } from './ComposeImportDialog'
 import { useTaskFlowStore } from '@/stores/taskFlowStore'
 import { useBranchStatusTracker } from '@/hooks/useBranchStatusTracker'
 import { groupStepsByPhase, normalizePhases } from '@/lib/phaseUtils'
 import { cn } from '@/lib/utils'
-import type { TaskFlow, TaskFlowStep, TaskFlowProcessStep, TaskFlowDockerStep } from '@/types'
+import type { TaskFlow, TaskFlowStep, TaskFlowProcessStep, TaskFlowDockerStep, ComposeSourceConfig } from '@/types'
 
 function generateStepId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
@@ -43,6 +44,8 @@ export function TaskFlowEditor() {
   const [name, setName] = useState('')
   const [addStepOpen, setAddStepOpen] = useState(false)
   const [activeId, setActiveId] = useState<string | null>(null)
+  const [composeImportOpen, setComposeImportOpen] = useState(false)
+  const [composeSyncChanged, setComposeSyncChanged] = useState(false)
   const nameInputRef = useRef<HTMLInputElement>(null)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined)
   const addStepRef = useRef<HTMLDivElement>(null)
@@ -63,6 +66,17 @@ export function TaskFlowEditor() {
   useEffect(() => {
     if (flow) setName(flow.name)
   }, [flow?.id])
+
+  // Compose sync check
+  useEffect(() => {
+    if (!flow?.composeSource) {
+      setComposeSyncChanged(false)
+      return
+    }
+    window.smoothyApi.checkComposeSync(flow.composeSource.filePath, flow.composeSource.lastSyncHash)
+      .then(result => setComposeSyncChanged(result.changed))
+      .catch(() => setComposeSyncChanged(false))
+  }, [flow?.id, flow?.composeSource?.lastSyncHash])
 
   // DnD sensors
   const sensors = useSensors(
@@ -178,6 +192,29 @@ export function TaskFlowEditor() {
       await window.smoothyApi.stopTaskFlowStep(flow.id, stepId)
     } catch (err) {
       console.error('Failed to stop step:', err)
+    }
+  }
+
+  const handleRunPhase = async (phase: number) => {
+    try {
+      await window.smoothyApi.runTaskFlowPhase(flow.id, phase)
+    } catch (err) {
+      console.error('Failed to run phase:', err)
+    }
+  }
+
+  const handleComposeImport = (steps: TaskFlowStep[], composeSource: ComposeSourceConfig) => {
+    const updatedSteps = normalizePhases(steps)
+    debouncedSave({ steps: updatedSteps, composeSource })
+    setComposeImportOpen(false)
+    setComposeSyncChanged(false)
+  }
+
+  const handleStopPhase = async (phase: number) => {
+    try {
+      await window.smoothyApi.stopTaskFlowPhase(flow.id, phase)
+    } catch (err) {
+      console.error('Failed to stop phase:', err)
     }
   }
 
@@ -355,6 +392,22 @@ export function TaskFlowEditor() {
         </div>
       </div>
 
+      {/* Compose sync banner */}
+      {composeSyncChanged && flow.composeSource && (
+        <div className="mx-4 mt-2 flex items-center gap-2 rounded border border-orange-500/30 bg-orange-500/5 px-3 py-2">
+          <AlertTriangle className="h-3.5 w-3.5 text-orange-400 shrink-0" />
+          <span className="text-xs text-orange-300">Docker Compose file has changed since last import</span>
+          <div className="flex-1" />
+          <button
+            onClick={() => setComposeImportOpen(true)}
+            className="flex items-center gap-1 text-xs text-orange-400 hover:text-orange-300 transition-colors"
+          >
+            <RefreshCw className="h-3 w-3" />
+            Re-sync
+          </button>
+        </div>
+      )}
+
       {/* Steps list */}
       <ScrollArea className="flex-1 p-4">
         <div className="max-w-2xl mx-auto">
@@ -379,6 +432,10 @@ export function TaskFlowEditor() {
                     <button className="w-full text-left px-2 py-1.5 rounded text-xs hover:bg-accent transition-colors flex items-center gap-2" onClick={handleAddDockerStep}>
                       <Container className="h-3 w-3" /> Docker Container
                     </button>
+                    <div className="border-t border-zinc-800 my-1" />
+                    <button className="w-full text-left px-2 py-1.5 rounded text-xs hover:bg-accent transition-colors flex items-center gap-2" onClick={() => { setComposeImportOpen(true); setAddStepOpen(false) }}>
+                      <FileUp className="h-3 w-3" /> Import from Compose
+                    </button>
                   </div>
                 )}
               </div>
@@ -399,6 +456,9 @@ export function TaskFlowEditor() {
                     steps={group.steps}
                     stepProgress={stepProgress}
                     isLast={gi === phaseGroups.length - 1}
+                    onRunPhase={handleRunPhase}
+                    onStopPhase={handleStopPhase}
+                    isExecuting={isRunning}
                   >
                     {group.steps.map((step) => (
                       <SortableStepWrapper key={step.id} id={step.id} disabled={isRunning}>
@@ -486,12 +546,24 @@ export function TaskFlowEditor() {
                   <button className="w-full text-left px-2 py-1.5 rounded text-xs hover:bg-accent transition-colors flex items-center gap-2" onClick={handleAddDockerStep}>
                     <Container className="h-3 w-3" /> Docker Container
                   </button>
+                  <div className="border-t border-zinc-800 my-1" />
+                  <button className="w-full text-left px-2 py-1.5 rounded text-xs hover:bg-accent transition-colors flex items-center gap-2" onClick={() => { setComposeImportOpen(true); setAddStepOpen(false) }}>
+                    <FileUp className="h-3 w-3" /> Import from Compose
+                  </button>
                 </div>
               )}
             </div>
           )}
         </div>
       </ScrollArea>
+
+      {/* Compose import dialog */}
+      <ComposeImportDialog
+        open={composeImportOpen}
+        onOpenChange={setComposeImportOpen}
+        onImport={handleComposeImport}
+        existingMappings={flow.composeSource?.serviceMappings}
+      />
     </div>
   )
 }

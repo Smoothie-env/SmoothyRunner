@@ -4,14 +4,13 @@ import { useProcessStore } from '@/stores/processStore'
 import type { TaskFlowStepStatus } from '@/types'
 
 export function useTaskFlowProgress() {
-  const updateStepProgress = useTaskFlowStore(s => s.updateStepProgress)
-  const setExecutionStatus = useTaskFlowStore(s => s.setExecutionStatus)
   const selectedFlowId = useTaskFlowStore(s => s.selectedFlowId)
-  const taskFlows = useTaskFlowStore(s => s.taskFlows)
 
   useEffect(() => {
     const unsub = window.smoothyApi.onTaskFlowProgress((data) => {
       if (data.flowId !== selectedFlowId) return
+
+      const { updateStepProgress, setExecutionStatus } = useTaskFlowStore.getState()
 
       // Handle flow-level completion event (status 'completed' is runner-internal, not a step status)
       if (data.stepId === '__flow__') {
@@ -45,6 +44,7 @@ export function useTaskFlowProgress() {
         processStore.setActiveProcessTab(data.stepId)
 
         // Set tab name for Docker steps
+        const { taskFlows } = useTaskFlowStore.getState()
         const flow = taskFlows.find(f => f.id === data.flowId)
         if (flow) {
           const step = flow.steps.find(s => s.id === data.stepId)
@@ -57,5 +57,5 @@ export function useTaskFlowProgress() {
     })
 
     return unsub
-  }, [updateStepProgress, setExecutionStatus, selectedFlowId, taskFlows])
+  }, [selectedFlowId])
 }

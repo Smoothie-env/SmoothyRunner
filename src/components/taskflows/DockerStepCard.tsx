@@ -7,7 +7,8 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { DOCKER_PRESETS } from '@/lib/dockerPresets'
 import { STATUS_CONFIG } from './stepStatusConfig'
-import type { TaskFlowDockerStep, TaskFlowStepProgress } from '@/types'
+import { AppSettingsEnvEditor } from './AppSettingsEnvEditor'
+import type { TaskFlowDockerStep, TaskFlowStep, TaskFlowStepProgress } from '@/types'
 
 interface DockerStepCardProps {
   step: TaskFlowDockerStep
@@ -22,12 +23,14 @@ interface DockerStepCardProps {
   isExecuting: boolean
   dragListeners?: Record<string, Function>
   dragAttributes?: Record<string, any>
+  appsettingsPath?: string
+  otherSteps?: TaskFlowStep[]
 }
 
 export function DockerStepCard({
   step, stepNumber, progress, expanded,
   onChange, onRemove, onToggleExpand, onRunStep, onStopStep, isExecuting,
-  dragListeners, dragAttributes
+  dragListeners, dragAttributes, appsettingsPath, otherSteps
 }: DockerStepCardProps) {
   const [presetOpen, setPresetOpen] = useState(false)
 
@@ -353,6 +356,16 @@ export function DockerStepCard({
               </div>
             ))}
           </div>
+
+          {/* AppSettings Env Mapping */}
+          {appsettingsPath && (
+            <AppSettingsEnvEditor
+              appsettingsPath={appsettingsPath}
+              currentEnv={step.env}
+              onAddEnvVar={(key, value) => onChange({ env: [...step.env, { key, value }] })}
+              otherSteps={otherSteps}
+            />
+          )}
 
           {/* Volumes */}
           <div className="space-y-1">

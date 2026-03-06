@@ -27,6 +27,9 @@ export interface ScannedFolderProject {
 const EXCLUDE_DIRS = new Set(['bin', 'obj', 'node_modules', '.git', 'dist', 'wwwroot', '.vs', '.idea', 'packages'])
 
 export class ProjectScanner {
+  private subProjectCache = new Map<string, { result: ScannedSubProject[]; timestamp: number }>()
+  private static CACHE_TTL = 30_000 // 30s — sub-projects don't change mid-run
+
   async scanFolder(dirPath: string): Promise<ScannedFolderProject> {
     const subProjects: ScannedSubProject[] = []
     await this.scanRecursive(dirPath, subProjects, 0, dirPath)
@@ -59,10 +62,26 @@ export class ProjectScanner {
     }
   }
 
-  async rescanSubProjects(rootPath: string): Promise<ScannedSubProject[]> {
+  async rescanSubProjects(rootPath: string, skipCache = false): Promise<ScannedSubProject[]> {
+    if (!skipCache) {
+      const cached = this.subProjectCache.get(rootPath)
+      if (cached && Date.now() - cached.timestamp < ProjectScanner.CACHE_TTL) {
+        return cached.result
+      }
+    }
+
     const subProjects: ScannedSubProject[] = []
     await this.scanRecursive(rootPath, subProjects, 0, rootPath)
+    this.subProjectCache.set(rootPath, { result: subProjects, timestamp: Date.now() })
     return subProjects
+  }
+
+  invalidateCache(rootPath?: string): void {
+    if (rootPath) {
+      this.subProjectCache.delete(rootPath)
+    } else {
+      this.subProjectCache.clear()
+    }
   }
 
   private async scanRecursive(dirPath: string, subProjects: ScannedSubProject[], depth: number, rootPath: string): Promise<void> {

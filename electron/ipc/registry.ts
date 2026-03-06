@@ -11,6 +11,7 @@ import { GitManager } from '../services/git-manager'
 import { GitWatcher } from '../services/git-watcher'
 import { TaskFlowRunner } from '../services/task-flow-runner'
 import { StandaloneDockerManager } from '../services/standalone-docker-manager'
+import { ComposeParser } from '../services/compose-parser'
 import type { TaskFlowConfig } from '../services/config-manager'
 import type { ProjectType } from '../services/project-types/project-type-handler'
 
@@ -25,6 +26,7 @@ export function registerAllHandlers(mainWindow: BrowserWindow): void {
   const gitWatcher = new GitWatcher(mainWindow)
   const standaloneDocker = new StandaloneDockerManager()
   const taskFlowRunner = new TaskFlowRunner(mainWindow, config, profiles, configFileManager, processes, git, scanner, standaloneDocker)
+  const composeParser = new ComposeParser()
 
   // Dialog
   ipcMain.handle('dialog:selectDirectory', async () => {
@@ -317,6 +319,50 @@ export function registerAllHandlers(mainWindow: BrowserWindow): void {
     const flow = await config.getTaskFlow(flowId)
     if (!flow) throw new Error(`Task flow ${flowId} not found`)
     return taskFlowRunner.stopSingleStep(flow, stepId)
+  })
+
+  ipcMain.handle('taskflows:runPhase', async (_event, flowId: string, phaseNumber: number) => {
+    const flow = await config.getTaskFlow(flowId)
+    if (!flow) throw new Error(`Task flow ${flowId} not found`)
+    taskFlowRunner.runPhase(flow, phaseNumber).catch(err => {
+      mainWindow.webContents.send('taskflow:stepProgress', {
+        flowId,
+        stepId: '__flow__',
+        status: 'error',
+        error: err.message
+      })
+    })
+  })
+
+  ipcMain.handle('taskflows:stopPhase', async (_event, flowId: string, phaseNumber: number) => {
+    const flow = await config.getTaskFlow(flowId)
+    if (!flow) throw new Error(`Task flow ${flowId} not found`)
+    return taskFlowRunner.stopPhase(flow, phaseNumber)
+  })
+
+  // Compose import
+  ipcMain.handle('taskflows:parseCompose', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile'],
+      filters: [
+        { name: 'Docker Compose', extensions: ['yml', 'yaml'] }
+      ]
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+    return composeParser.parse(result.filePaths[0])
+  })
+
+  ipcMain.handle('taskflows:parseComposeFile', async (_event, filePath: string) => {
+    return composeParser.parse(filePath)
+  })
+
+  ipcMain.handle('taskflows:checkComposeSync', async (_event, filePath: string, lastHash: string) => {
+    const currentHash = await composeParser.computeHash(filePath)
+    return { changed: currentHash !== lastHash, currentHash }
+  })
+
+  ipcMain.handle('taskflows:flattenAppsettings', async (_event, appsettingsPath: string) => {
+    return composeParser.flattenAppsettingsKeys(appsettingsPath)
   })
 
   // Graceful shutdown

@@ -45,12 +45,25 @@ export interface ProjectProfileData {
   files: Record<string, FileProfileData>
 }
 
+export interface ComposeServiceMapping {
+  type: 'docker' | 'project'
+  projectId?: string
+  subProjectId?: string
+}
+
+export interface ComposeSourceConfig {
+  filePath: string
+  lastSyncHash: string
+  serviceMappings: Record<string, ComposeServiceMapping>
+}
+
 export interface TaskFlowConfig {
   id: string
   name: string
   steps: TaskFlowStepConfig[]
   createdAt: string
   updatedAt: string
+  composeSource?: ComposeSourceConfig
 }
 
 export interface TaskFlowProcessStepConfig {

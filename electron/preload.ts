@@ -102,6 +102,14 @@ const smoothyApi = {
   runTaskFlowStep: (flowId: string, stepId: string) => ipcRenderer.invoke('taskflows:runStep', flowId, stepId),
   stopTaskFlow: (flowId: string) => ipcRenderer.invoke('taskflows:stop', flowId),
   stopTaskFlowStep: (flowId: string, stepId: string) => ipcRenderer.invoke('taskflows:stopStep', flowId, stepId),
+  runTaskFlowPhase: (flowId: string, phaseNumber: number) => ipcRenderer.invoke('taskflows:runPhase', flowId, phaseNumber),
+  stopTaskFlowPhase: (flowId: string, phaseNumber: number) => ipcRenderer.invoke('taskflows:stopPhase', flowId, phaseNumber),
+
+  // Compose import
+  parseCompose: () => ipcRenderer.invoke('taskflows:parseCompose'),
+  parseComposeFile: (filePath: string) => ipcRenderer.invoke('taskflows:parseComposeFile', filePath),
+  checkComposeSync: (filePath: string, lastHash: string) => ipcRenderer.invoke('taskflows:checkComposeSync', filePath, lastHash),
+  flattenAppsettings: (appsettingsPath: string) => ipcRenderer.invoke('taskflows:flattenAppsettings', appsettingsPath),
   onTaskFlowProgress: (callback: (data: { flowId: string; stepId: string; status: string; error?: string }) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, data: { flowId: string; stepId: string; status: string; error?: string }) => callback(data)
     ipcRenderer.on('taskflow:stepProgress', listener)

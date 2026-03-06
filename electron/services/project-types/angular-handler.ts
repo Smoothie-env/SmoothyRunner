@@ -67,24 +67,24 @@ export class AngularHandler implements ProjectTypeHandler {
   getLaunchCommand(subProject: ScannedSubProject, mode: LaunchMode, rootPath?: string, portOverride?: number): LaunchCommand {
     const sp = subProject as ScannedAngularSubProject
     const cwd = path.dirname(sp.angularJsonPath)
+    // Use local ng binary directly instead of npx (avoids shell + npx resolution overhead)
+    const ngBin = path.join(cwd, 'node_modules', '.bin', 'ng')
 
     if (mode === 'release') {
       return {
-        command: 'npx',
-        args: ['ng', 'build', '--configuration', 'production'],
-        cwd,
-        shell: true
+        command: ngBin,
+        args: ['build', '--configuration', 'production'],
+        cwd
       }
     }
 
     // watch mode (default)
-    const args = ['ng', 'serve']
+    const args = ['serve']
     if (portOverride) args.push('--port', String(portOverride))
     return {
-      command: 'npx',
+      command: ngBin,
       args,
-      cwd,
-      shell: true
+      cwd
     }
   }
 

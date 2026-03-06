@@ -1,5 +1,6 @@
 import { spawn, execFile, type ChildProcess } from 'child_process'
 import { promisify } from 'util'
+import net from 'net'
 import { BrowserWindow } from 'electron'
 import { getHandler } from './project-types/registry'
 import type { ProjectType, LaunchMode } from './project-types/project-type-handler'
@@ -275,12 +276,14 @@ export class ProcessManager {
     }
   }
 
-  private async isPortInUse(port: number): Promise<boolean> {
-    try {
-      const { stdout } = await execFileAsync('lsof', ['-i', `:${port}`, '-t'])
-      return stdout.trim().length > 0
-    } catch {
-      return false
-    }
+  private isPortInUse(port: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      const server = net.createServer()
+      server.once('error', () => resolve(true))
+      server.once('listening', () => {
+        server.close(() => resolve(false))
+      })
+      server.listen(port, '127.0.0.1')
+    })
   }
 }

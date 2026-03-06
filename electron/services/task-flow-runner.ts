@@ -1,4 +1,7 @@
 import { BrowserWindow } from 'electron'
+import fs from 'fs/promises'
+import path from 'path'
+import { spawn } from 'child_process'
 import { ConfigManager } from './config-manager'
 import type { TaskFlowConfig, TaskFlowStepConfig, TaskFlowProcessStepConfig, TaskFlowDockerStepConfig } from './config-manager'
 import { ProfileManager } from './profile-manager'
@@ -238,6 +241,121 @@ export class TaskFlowRunner {
       } catch { /* not running */ }
       this.sendProgress(flow.id, stepId, 'stopped')
     }
+  }
+
+  async runPhase(flow: TaskFlowConfig, phaseNumber: number): Promise<void> {
+    const runKey = `${flow.id}:phase:${phaseNumber}`
+    const ctx: RunContext = { flowId: flow.id, aborted: false }
+    this.activeRuns.set(runKey, ctx)
+
+    const allSteps = flow.steps.filter(s => (s.phase ?? 0) === phaseNumber)
+    if (allSteps.length === 0) {
+      this.activeRuns.delete(runKey)
+      return
+    }
+
+    const dockerSteps = allSteps.filter((s): s is TaskFlowDockerStepConfig => s.type === 'docker')
+    const processSteps = allSteps.filter((s): s is TaskFlowProcessStepConfig => s.type === 'process')
+
+    // Pre-flight cleanup for this phase
+    for (const step of processSteps) {
+      if (step.subProjectId) {
+        try { await this.processManager.stop(step.id) } catch { /* not running */ }
+      }
+    }
+    for (const step of dockerSteps) {
+      const containerName = this.resolveContainerName(flow.id, step)
+      this.stopDockerLogStream(containerName)
+      await this.dockerManager.stop(containerName)
+      await this.dockerManager.remove(containerName)
+    }
+
+    // Mark all phase steps as pending
+    for (const step of allSteps) {
+      this.sendProgress(flow.id, step.id, 'pending')
+    }
+
+    if (ctx.aborted) {
+      this.markRemainingSkipped(flow.id, allSteps)
+      this.sendProgress(flow.id, '__flow__', 'completed')
+      this.activeRuns.delete(runKey)
+      return
+    }
+
+    const folderProjects = await this.configManager.listFolderProjects()
+
+    // Start all steps in this phase in parallel
+    const results = await Promise.allSettled([
+      ...dockerSteps.map(s => this.startDockerStep(flow.id, s, ctx)),
+      ...processSteps.map(s => this.executeProcessStep(flow.id, s, folderProjects, ctx))
+    ])
+
+    const hasFatalError = results.some(r => r.status === 'rejected')
+    if (hasFatalError) {
+      ctx.aborted = true
+    }
+
+    // Wait for Docker health
+    if (!ctx.aborted && dockerSteps.length > 0) {
+      try {
+        await Promise.all(dockerSteps.map(s => this.waitForDockerHealth(flow.id, s, ctx)))
+      } catch {
+        ctx.aborted = true
+      }
+      if (!ctx.aborted) {
+        this.startDockerMonitor(flow.id, dockerSteps)
+      }
+    }
+
+    if (ctx.aborted) {
+      this.markRemainingSkipped(flow.id, allSteps)
+    }
+
+    this.sendProgress(flow.id, '__flow__', 'completed')
+    this.activeRuns.delete(runKey)
+  }
+
+  async stopPhase(flow: TaskFlowConfig, phaseNumber: number): Promise<void> {
+    const runKey = `${flow.id}:phase:${phaseNumber}`
+    const ctx = this.activeRuns.get(runKey)
+    if (ctx) {
+      ctx.aborted = true
+    }
+
+    const phaseSteps = flow.steps.filter(s => (s.phase ?? 0) === phaseNumber)
+
+    for (const step of phaseSteps) {
+      if (step.type === 'process') {
+        try {
+          await this.processManager.stop(step.id)
+        } catch { /* not running */ }
+      } else if (step.type === 'docker') {
+        const dockerStep = step as TaskFlowDockerStepConfig
+        const containerName = this.resolveContainerName(flow.id, dockerStep)
+
+        // Remove from monitored containers
+        const entries = this.monitoredContainers.get(flow.id)
+        if (entries) {
+          const filtered = entries.filter(e => e.stepId !== step.id)
+          if (filtered.length === 0) {
+            this.stopDockerMonitor(flow.id)
+          } else {
+            this.monitoredContainers.set(flow.id, filtered)
+          }
+        }
+
+        this.stopDockerLogStream(containerName)
+        await this.dockerManager.stop(containerName)
+        await this.dockerManager.remove(containerName)
+        this.mainWindow.webContents.send('process:log', {
+          id: step.id,
+          data: '\r\n[Container stopped]\r\n'
+        })
+      }
+      this.sendProgress(flow.id, step.id, 'stopped')
+    }
+
+    this.activeRuns.delete(runKey)
   }
 
   async stopAll(flow: TaskFlowConfig): Promise<void> {
@@ -524,7 +642,13 @@ export class TaskFlowRunner {
       effectiveRootPath = step.worktreePath
     }
 
-    const subProjects = await this.scanner.rescanSubProjects(effectiveRootPath)
+    // Run sub-project scan and git branch check in parallel
+    const needsCheckout = !!(step.branch && step.branchStrategy !== 'worktree')
+    const [subProjects, currentBranch] = await Promise.all([
+      this.scanner.rescanSubProjects(effectiveRootPath),
+      needsCheckout ? this.gitManager.currentBranch(effectiveRootPath).catch(() => null) : Promise.resolve(null)
+    ])
+
     let subProject = subProjects.find(sp => sp.id === step.subProjectId)
 
     if (!subProject && effectiveRootPath !== projectConfig.originalRootPath) {
@@ -547,17 +671,14 @@ export class TaskFlowRunner {
       return
     }
 
-    if (step.branch && step.branchStrategy !== 'worktree') {
+    if (needsCheckout && step.branch && currentBranch !== step.branch) {
       this.sendProgress(flowId, step.id, 'checkout')
       try {
-        const currentBranch = await this.gitManager.currentBranch(effectiveRootPath)
-        if (currentBranch !== step.branch) {
-          const isDirty = await this.gitManager.isDirty(effectiveRootPath)
-          if (isDirty) {
-            await this.gitManager.stash(effectiveRootPath, `taskflow: switch to ${step.branch}`)
-          }
-          await this.gitManager.checkout(effectiveRootPath, step.branch)
+        const isDirty = await this.gitManager.isDirty(effectiveRootPath)
+        if (isDirty) {
+          await this.gitManager.stash(effectiveRootPath, `taskflow: switch to ${step.branch}`)
         }
+        await this.gitManager.checkout(effectiveRootPath, step.branch)
       } catch (err: any) {
         this.sendProgress(flowId, step.id, 'error', `Branch checkout failed: ${err.message}`)
         return
@@ -602,6 +723,26 @@ export class TaskFlowRunner {
     if (ctx.aborted) {
       this.sendProgress(flowId, step.id, 'skipped')
       return
+    }
+
+    // Ensure node_modules exist in worktree for node-based projects (check for actual ng binary, not just directory)
+    if (effectiveRootPath !== projectConfig.originalRootPath && subProject.projectType === 'angular') {
+      const projectDir = path.dirname((subProject as any).angularJsonPath)
+      const ngBinPath = path.join(projectDir, 'node_modules', '.bin', 'ng')
+      const hasNgBin = await fs.access(ngBinPath).then(() => true).catch(() => false)
+      if (!hasNgBin) {
+        this.sendProgress(flowId, step.id, 'starting')
+        this.mainWindow.webContents.send('process:log', {
+          id: step.id,
+          data: '[TaskFlow] node_modules not found in worktree, running npm install...\r\n'
+        })
+        try {
+          await this.runNpmInstall(flowId, step.id, projectDir)
+        } catch (err: any) {
+          this.sendProgress(flowId, step.id, 'error', `npm install failed: ${err.message}`)
+          return
+        }
+      }
     }
 
     this.sendProgress(flowId, step.id, 'starting')
@@ -649,6 +790,32 @@ export class TaskFlowRunner {
       rootPath,
       subProject
     }
+  }
+
+  private runNpmInstall(flowId: string, stepId: string, cwd: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const proc = spawn('npm', ['install'], { cwd, shell: true, stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env } })
+
+      proc.stdout?.on('data', (data: Buffer) => {
+        this.mainWindow.webContents.send('process:log', { id: stepId, data: data.toString() })
+      })
+      proc.stderr?.on('data', (data: Buffer) => {
+        this.mainWindow.webContents.send('process:log', { id: stepId, data: data.toString() })
+      })
+
+      proc.on('exit', (code) => {
+        if (code === 0) {
+          this.mainWindow.webContents.send('process:log', {
+            id: stepId,
+            data: '[TaskFlow] npm install completed\r\n'
+          })
+          resolve()
+        } else {
+          reject(new Error(`npm install exited with code ${code}`))
+        }
+      })
+      proc.on('error', reject)
+    })
   }
 
   private delay(ms: number): Promise<void> {
